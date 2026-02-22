@@ -1,9 +1,12 @@
 package com.aufait.alpha
 
 import android.Manifest
+import android.database.Cursor
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -30,6 +33,12 @@ class MainActivity : ComponentActivity() {
         val content = result.contents ?: return@registerForActivityResult
         viewModel.importContactFromQr(content)
     }
+    private val attachmentPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@registerForActivityResult
+        handleAttachmentPicked(uri)
+    }
 
     private val viewModel by viewModels<ChatViewModel> {
         object : ViewModelProvider.Factory {
@@ -46,7 +55,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             AlphaApp(
                 viewModel = viewModel,
-                onScanContactQrRequest = ::requestContactQrScan
+                onScanContactQrRequest = ::requestContactQrScan,
+                onPickAttachmentRequest = ::openAttachmentPicker
             )
         }
     }
@@ -92,4 +102,45 @@ class MainActivity : ComponentActivity() {
             .setOrientationLocked(false)
         qrScanLauncher.launch(options)
     }
+
+    private fun openAttachmentPicker() {
+        attachmentPickerLauncher.launch(arrayOf("*/*"))
+    }
+
+    private fun handleAttachmentPicked(uri: Uri) {
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
+        val meta = queryAttachmentMeta(uri)
+        viewModel.onAttachmentPicked(
+            uriString = uri.toString(),
+            displayName = meta.displayName ?: "fichier",
+            mimeType = contentResolver.getType(uri),
+            sizeBytes = meta.sizeBytes
+        )
+    }
+
+    private fun queryAttachmentMeta(uri: Uri): AttachmentMeta {
+        var name: String? = null
+        var size: Long? = null
+        val cursor: Cursor? = contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = it.getColumnIndex(OpenableColumns.SIZE)
+            if (it.moveToFirst()) {
+                if (nameIndex >= 0) name = it.getString(nameIndex)
+                if (sizeIndex >= 0 && !it.isNull(sizeIndex)) size = it.getLong(sizeIndex)
+            }
+        }
+        return AttachmentMeta(name, size)
+    }
+
+    private data class AttachmentMeta(
+        val displayName: String?,
+        val sizeBytes: Long?
+    )
 }

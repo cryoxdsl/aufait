@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 data class ChatUiState(
     val myIdShort: String = "",
@@ -35,7 +36,15 @@ data class ChatUiState(
     val identityQrPayload: String = "",
     val showIdentityQr: Boolean = false,
     val contacts: List<ContactRecord> = emptyList(),
-    val contactImportStatus: String? = null
+    val contactImportStatus: String? = null,
+    val attachmentDraft: AttachmentDraft? = null
+)
+
+data class AttachmentDraft(
+    val uriString: String,
+    val displayName: String,
+    val mimeType: String?,
+    val sizeBytes: Long?
 )
 
 class ChatViewModel(
@@ -139,17 +148,19 @@ class ChatViewModel(
     }
 
     fun sendMessage() {
-        val text = uiState.value.input.trim()
-        if (text.isEmpty()) return
-
         val state = uiState.value
+        val text = state.input.trim()
+        val attachment = state.attachmentDraft
+        if (text.isEmpty() && attachment == null) return
+
         val peerRef = state.peers.firstOrNull { it.nodeId == state.selectedPeerNodeId }?.nodeId
             ?: state.contacts.firstOrNull { it.userId == state.selectedContactUserId }?.userId
             ?: state.peerAlias
-        local.update { it.copy(input = "") }
+        val outboundBody = buildOutgoingBody(text, attachment)
+        local.update { it.copy(input = "", attachmentDraft = null) }
 
         viewModelScope.launch(Dispatchers.IO) {
-            container.chatService.sendToPeer(peerRef, text)
+            container.chatService.sendToPeer(peerRef, outboundBody)
         }
     }
 
@@ -181,8 +192,49 @@ class ChatViewModel(
         local.update { it.copy(contactImportStatus = null) }
     }
 
+    fun onAttachmentPicked(
+        uriString: String,
+        displayName: String,
+        mimeType: String?,
+        sizeBytes: Long?
+    ) {
+        local.update {
+            it.copy(
+                attachmentDraft = AttachmentDraft(
+                    uriString = uriString,
+                    displayName = displayName.ifBlank { "fichier" },
+                    mimeType = mimeType,
+                    sizeBytes = sizeBytes
+                )
+            )
+        }
+    }
+
+    fun clearAttachmentDraft() {
+        local.update { it.copy(attachmentDraft = null) }
+    }
+
     private fun buildCryptoStatus(): String {
         val bundle = container.x3dhPreKeyRepository.getOrCreateBundleSummary()
         return "${container.chatService.cryptoModeLabel} • x3dh-prekeys:${bundle.oneTimePreKeyCount}"
+    }
+
+    private fun buildOutgoingBody(text: String, attachment: AttachmentDraft?): String {
+        if (attachment == null) return text
+        val attachmentLine = buildString {
+            append("📎 ")
+            append(attachment.displayName)
+            attachment.sizeBytes?.let { append(" (").append(formatBytes(it)).append(")") }
+            attachment.mimeType?.takeIf { it.isNotBlank() }?.let { append(" • ").append(it) }
+        }
+        return if (text.isBlank()) attachmentLine else "$attachmentLine\n$text"
+    }
+
+    private fun formatBytes(size: Long): String {
+        if (size < 1024) return "${size} B"
+        val kb = size / 1024.0
+        if (kb < 1024) return String.format(Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        return String.format(Locale.US, "%.1f MB", mb)
     }
 }
