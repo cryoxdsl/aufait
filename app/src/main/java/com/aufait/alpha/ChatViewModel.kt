@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aufait.alpha.data.AlphaChatContainer
 import com.aufait.alpha.data.ChatMessage
+import com.aufait.alpha.data.DiscoveredPeer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ChatUiState(
     val myIdShort: String = "",
@@ -18,8 +20,9 @@ data class ChatUiState(
     val peerAlias: String = "demo-peer",
     val input: String = "",
     val messages: List<ChatMessage> = emptyList(),
-    val transportStatus: String = "Mesh alpha (simule)",
-    val startupError: String? = null
+    val transportStatus: String = "LAN mesh alpha",
+    val startupError: String? = null,
+    val peers: List<DiscoveredPeer> = emptyList()
 )
 
 class ChatViewModel(
@@ -29,14 +32,27 @@ class ChatViewModel(
 
     val uiState: StateFlow<ChatUiState> = combine(
         local,
-        container.messageRepository.messages
-    ) { state, messages ->
-        state.copy(messages = messages)
+        container.messageRepository.messages,
+        container.chatService.peers
+    ) { state, messages, peers ->
+        val selectedPeer = peers.firstOrNull()?.alias ?: state.peerAlias
+        state.copy(
+            messages = messages,
+            peers = peers,
+            peerAlias = selectedPeer,
+            transportStatus = if (peers.isEmpty()) {
+                "LAN mesh alpha (aucun pair, fallback local)"
+            } else {
+                "LAN mesh alpha (${peers.size} pair(s))"
+            }
+        )
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, ChatUiState())
 
     init {
         viewModelScope.launch {
-            container.chatService.start()
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                container.chatService.start()
+            }
         }
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -69,7 +85,7 @@ class ChatViewModel(
         val peer = uiState.value.peerAlias
         local.update { it.copy(input = "") }
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             container.chatService.sendToPeer(peer, text)
         }
     }

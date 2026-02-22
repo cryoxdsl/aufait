@@ -128,6 +128,10 @@ private fun IdentityCard(state: ChatUiState) {
             Text("Fingerprint: ${state.fingerprint}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(4.dp))
             Text("Pair cible (alpha): ${state.peerAlias}", style = MaterialTheme.typography.labelMedium)
+            Text(
+                "Pairs LAN detectes: ${state.peers.size}",
+                style = MaterialTheme.typography.labelMedium
+            )
         }
     }
 }

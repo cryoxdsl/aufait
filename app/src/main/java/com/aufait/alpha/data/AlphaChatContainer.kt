@@ -12,7 +12,7 @@ class AlphaChatContainer(context: Context) {
     val identityRepository = IdentityRepository(appContext)
     private val localCipher = LocalCipher()
     val messageRepository = EncryptedMessageRepository(appContext, localCipher)
-    private val transport = LoopbackMeshTransport(scope)
+    private val transport = LanUdpMeshTransport(scope)
     val chatService = ChatService(
         identityRepository = identityRepository,
         messageRepository = messageRepository,
