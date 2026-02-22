@@ -19,9 +19,9 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -34,7 +34,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,6 +60,7 @@ fun AlphaApp(viewModel: ChatViewModel) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AlphaScreen(
     state: ChatUiState,
     onInputChanged: (String) -> Unit,
@@ -155,7 +155,7 @@ private fun MessageBubble(message: ChatMessage) {
     } else {
         MaterialTheme.colorScheme.secondaryContainer
     }
-    val alignment = if (outbound) Alignment.CenterEnd else Alignment.CenterStart
+    val alignment = if (outbound) Alignment.End else Alignment.Start
 
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = alignment) {
         Column(
