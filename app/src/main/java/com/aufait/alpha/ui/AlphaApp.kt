@@ -116,6 +116,14 @@ private fun IdentityCard(state: ChatUiState) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text("Identite locale", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
+            state.startupError?.let {
+                Text(
+                    text = "Erreur init: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.height(4.dp))
+            }
             Text("ID: ${state.myIdShort}", maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("Fingerprint: ${state.fingerprint}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(4.dp))

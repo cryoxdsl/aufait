@@ -2,8 +2,11 @@ package com.aufait.alpha.data
 
 import android.content.Context
 import android.util.Base64
+import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.spec.ECGenParameterSpec
 
 class IdentityRepository(context: Context) {
     private val prefs = context.getSharedPreferences("aufait_identity", Context.MODE_PRIVATE)
@@ -28,8 +31,7 @@ class IdentityRepository(context: Context) {
     }
 
     private fun generateAndStore(): ByteArray {
-        val generator = KeyPairGenerator.getInstance("Ed25519")
-        val pair = generator.generateKeyPair()
+        val pair = generateKeyPairCompat()
         val publicBytes = pair.public.encoded
         val privateBytes = pair.private.encoded
 
@@ -38,6 +40,27 @@ class IdentityRepository(context: Context) {
             .putString(KEY_PRIVATE, Base64.encodeToString(privateBytes, Base64.NO_WRAP))
             .apply()
         return publicBytes
+    }
+
+    private fun generateKeyPairCompat(): KeyPair {
+        runCatching {
+            return KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        }
+
+        runCatching {
+            val generator = KeyPairGenerator.getInstance("EC")
+            generator.initialize(ECGenParameterSpec("secp256r1"))
+            return generator.generateKeyPair()
+        }
+
+        // Dernier recours alpha: cle de signature RSA si l'appareil est ancien / provider limite.
+        runCatching {
+            val generator = KeyPairGenerator.getInstance("RSA")
+            generator.initialize(2048, SecureRandom())
+            return generator.generateKeyPair()
+        }
+
+        error("Aucun algorithme de generation de cle disponible sur cet appareil")
     }
 
     private fun fingerprint(bytes: ByteArray): String {
