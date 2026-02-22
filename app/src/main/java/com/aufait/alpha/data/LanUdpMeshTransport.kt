@@ -24,9 +24,11 @@ class LanUdpMeshTransport(
 ) : MeshTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _inbound = MutableSharedFlow<InboundTransportMessage>(extraBufferCapacity = 32)
+    private val _receipts = MutableSharedFlow<InboundReceipt>(extraBufferCapacity = 32)
     private val _peers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
 
     override val inboundMessages: SharedFlow<InboundTransportMessage> = _inbound
+    override val inboundReceipts: SharedFlow<InboundReceipt> = _receipts
     override val peers: StateFlow<List<DiscoveredPeer>> = _peers.asStateFlow()
 
     private val peerTable = ConcurrentHashMap<String, PeerRecord>()
@@ -49,16 +51,27 @@ class LanUdpMeshTransport(
                 }
             }
         }
+        externalScope.launch {
+            fallback.inboundReceipts.collect { receipt ->
+                if (_peers.value.isEmpty()) {
+                    _receipts.emit(receipt)
+                }
+            }
+        }
 
         scope.launch { receiveLoop() }
         scope.launch { beaconLoop() }
         scope.launch { cleanupLoop() }
     }
 
-    override suspend fun send(toPeer: String, body: String) {
+    override suspend fun updateLocalAlias(localAlias: String) {
+        this.localAlias = localAlias.trim().ifBlank { this.localAlias }
+    }
+
+    override suspend fun sendMessage(toPeer: String, messageId: String, body: String) {
         val peersSnapshot = _peers.value
         if (peersSnapshot.isEmpty()) {
-            fallback.send(toPeer, body)
+            fallback.sendMessage(toPeer, messageId, body)
             return
         }
 
@@ -70,7 +83,34 @@ class LanUdpMeshTransport(
             .put("type", "msg")
             .put("nodeId", localNodeId)
             .put("alias", localAlias)
+            .put("messageId", messageId)
             .put("body", body.take(4000))
+            .toString()
+
+        sendDatagram(
+            data = payload.toByteArray(Charsets.UTF_8),
+            address = InetAddress.getByName(target.endpoint.substringBefore(':')),
+            port = target.endpoint.substringAfter(':').toIntOrNull() ?: PORT
+        )
+    }
+
+    override suspend fun sendReceipt(toPeer: String, messageId: String, kind: ReceiptKind) {
+        val peersSnapshot = _peers.value
+        if (peersSnapshot.isEmpty()) {
+            fallback.sendReceipt(toPeer, messageId, kind)
+            return
+        }
+
+        val target = peersSnapshot.firstOrNull {
+            it.alias.equals(toPeer, ignoreCase = true) || it.nodeId.startsWith(toPeer, ignoreCase = true)
+        } ?: return
+
+        val payload = JSONObject()
+            .put("type", "receipt")
+            .put("nodeId", localNodeId)
+            .put("alias", localAlias)
+            .put("messageId", messageId)
+            .put("receiptKind", kind.name.lowercase())
             .toString()
 
         sendDatagram(
@@ -147,12 +187,34 @@ class LanUdpMeshTransport(
 
         if (type == "msg") {
             val body = json.optString("body")
+            val messageId = json.optString("messageId").ifBlank { "remote-${System.currentTimeMillis()}" }
             if (body.isNotBlank()) {
                 externalScope.launch {
                     _inbound.emit(
                         InboundTransportMessage(
+                            messageId = messageId,
                             fromPeer = alias,
+                            fromNodeId = nodeId,
                             body = body
+                        )
+                    )
+                }
+            }
+        } else if (type == "receipt") {
+            val messageId = json.optString("messageId")
+            val kind = when (json.optString("receiptKind").lowercase()) {
+                "delivered" -> ReceiptKind.DELIVERED
+                "read" -> ReceiptKind.READ
+                else -> null
+            }
+            if (messageId.isNotBlank() && kind != null) {
+                externalScope.launch {
+                    _receipts.emit(
+                        InboundReceipt(
+                            messageId = messageId,
+                            fromPeer = alias,
+                            fromNodeId = nodeId,
+                            kind = kind
                         )
                     )
                 }

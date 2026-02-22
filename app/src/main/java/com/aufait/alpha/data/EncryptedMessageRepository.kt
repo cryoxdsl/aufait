@@ -15,17 +15,51 @@ class EncryptedMessageRepository(
     private val _messages = MutableStateFlow(loadAndDecrypt())
     val messages: StateFlow<List<ChatMessage>> = _messages
 
-    fun append(direction: MessageDirection, author: String, body: String, timestampMs: Long = System.currentTimeMillis()) {
+    fun append(
+        direction: MessageDirection,
+        author: String,
+        body: String,
+        timestampMs: Long = System.currentTimeMillis(),
+        id: String = UUID.randomUUID().toString()
+    ): String {
         val current = loadStored().toMutableList()
         val (iv, data) = cipher.encrypt(body)
         current += StoredMessageEnvelope(
-            id = UUID.randomUUID().toString(),
+            id = id,
             direction = direction,
             author = author,
             timestampMs = timestampMs,
             ivBase64 = iv,
-            cipherBase64 = data
+            cipherBase64 = data,
+            deliveredAtMs = null,
+            readAtMs = null
         )
+        saveStored(current)
+        _messages.value = current.map(::decryptEnvelope)
+        return id
+    }
+
+    fun markReceipt(messageId: String, receiptKind: ReceiptKind, atMs: Long = System.currentTimeMillis()) {
+        val current = loadStored().toMutableList()
+        val index = current.indexOfFirst { it.id == messageId }
+        if (index < 0) return
+        val msg = current[index]
+        if (msg.direction != MessageDirection.OUTBOUND) return
+
+        val updated = when (receiptKind) {
+            ReceiptKind.DELIVERED -> {
+                if (msg.deliveredAtMs != null) return
+                msg.copy(deliveredAtMs = atMs)
+            }
+            ReceiptKind.READ -> {
+                if (msg.readAtMs != null) return
+                msg.copy(
+                    deliveredAtMs = msg.deliveredAtMs ?: atMs,
+                    readAtMs = atMs
+                )
+            }
+        }
+        current[index] = updated
         saveStored(current)
         _messages.value = current.map(::decryptEnvelope)
     }
@@ -40,7 +74,9 @@ class EncryptedMessageRepository(
             direction = env.direction,
             author = env.author,
             body = body,
-            timestampMs = env.timestampMs
+            timestampMs = env.timestampMs,
+            deliveredAtMs = env.deliveredAtMs,
+            readAtMs = env.readAtMs
         )
     }
 
@@ -58,7 +94,9 @@ class EncryptedMessageRepository(
                             author = o.getString("author"),
                             timestampMs = o.getLong("timestampMs"),
                             ivBase64 = o.getString("ivBase64"),
-                            cipherBase64 = o.getString("cipherBase64")
+                            cipherBase64 = o.getString("cipherBase64"),
+                            deliveredAtMs = o.optNullableLong("deliveredAtMs"),
+                            readAtMs = o.optNullableLong("readAtMs")
                         )
                     )
                 }
@@ -77,6 +115,8 @@ class EncryptedMessageRepository(
                     put("timestampMs", msg.timestampMs)
                     put("ivBase64", msg.ivBase64)
                     put("cipherBase64", msg.cipherBase64)
+                    msg.deliveredAtMs?.let { put("deliveredAtMs", it) }
+                    msg.readAtMs?.let { put("readAtMs", it) }
                 }
             )
         }
@@ -87,3 +127,6 @@ class EncryptedMessageRepository(
         private const val KEY_MESSAGES_JSON = "messages_json"
     }
 }
+
+private fun JSONObject.optNullableLong(key: String): Long? =
+    if (has(key) && !isNull(key)) getLong(key) else null

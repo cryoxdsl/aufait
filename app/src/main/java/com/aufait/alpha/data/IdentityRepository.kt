@@ -23,11 +23,22 @@ class IdentityRepository(context: Context) {
         }
 
         val publicKeyBase64 = Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
+        val alias = prefs.getString(KEY_ALIAS, null)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "android-${sha256Hex(publicKeyBytes).take(6)}"
         return UserIdentity(
             id = sha256Hex(publicKeyBytes),
+            alias = alias,
             publicKeyBase64 = publicKeyBase64,
             fingerprint = fingerprint(publicKeyBytes)
         )
+    }
+
+    fun setAlias(alias: String) {
+        val normalized = alias.trim().replace('\n', ' ').take(MAX_ALIAS_LEN)
+        if (normalized.isEmpty()) return
+        prefs.edit().putString(KEY_ALIAS, normalized).apply()
     }
 
     private fun generateAndStore(): ByteArray {
@@ -76,5 +87,7 @@ class IdentityRepository(context: Context) {
     companion object {
         private const val KEY_PUBLIC = "public_key_b64"
         private const val KEY_PRIVATE = "private_key_b64"
+        private const val KEY_ALIAS = "alias"
+        private const val MAX_ALIAS_LEN = 32
     }
 }
