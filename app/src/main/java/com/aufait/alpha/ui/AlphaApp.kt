@@ -56,6 +56,8 @@ import com.aufait.alpha.ChatViewModel
 import com.aufait.alpha.AttachmentDraft
 import com.aufait.alpha.R
 import com.aufait.alpha.data.TransportRoutingMode
+import com.aufait.alpha.data.RelayNetworkMode
+import com.aufait.alpha.data.TorFallbackPolicy
 
 @Composable
 fun AlphaApp(
@@ -79,7 +81,9 @@ fun AlphaApp(
                 onDismissContactImportStatus = viewModel::clearContactImportStatus,
                 onPickAttachmentRequest = onPickAttachmentRequest,
                 onClearAttachmentDraft = viewModel::clearAttachmentDraft,
-                onSetTransportRoutingMode = viewModel::setTransportRoutingMode
+                onSetTransportRoutingMode = viewModel::setTransportRoutingMode,
+                onSetRelayNetworkMode = viewModel::setRelayNetworkMode,
+                onSetTorFallbackPolicy = viewModel::setTorFallbackPolicy
             )
         }
     }
@@ -100,7 +104,9 @@ private fun AlphaScreen(
     onDismissContactImportStatus: () -> Unit,
     onPickAttachmentRequest: () -> Unit,
     onClearAttachmentDraft: () -> Unit,
-    onSetTransportRoutingMode: (TransportRoutingMode) -> Unit
+    onSetTransportRoutingMode: (TransportRoutingMode) -> Unit,
+    onSetRelayNetworkMode: (RelayNetworkMode) -> Unit,
+    onSetTorFallbackPolicy: (TorFallbackPolicy) -> Unit
 ) {
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
 
@@ -122,7 +128,9 @@ private fun AlphaScreen(
             onDismissContactImportStatus = onDismissContactImportStatus,
             onSelectContact = onSelectContact,
             onSelectPeer = onSelectPeer,
-            onSetTransportRoutingMode = onSetTransportRoutingMode
+            onSetTransportRoutingMode = onSetTransportRoutingMode,
+            onSetRelayNetworkMode = onSetRelayNetworkMode,
+            onSetTorFallbackPolicy = onSetTorFallbackPolicy
         )
     }
 
@@ -338,7 +346,9 @@ private fun AlphaScreenPreview() {
             onDismissContactImportStatus = {},
             onPickAttachmentRequest = {},
             onClearAttachmentDraft = {},
-            onSetTransportRoutingMode = {}
+            onSetTransportRoutingMode = {},
+            onSetRelayNetworkMode = {},
+            onSetTorFallbackPolicy = {}
         )
     }
 }

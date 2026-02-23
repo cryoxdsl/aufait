@@ -46,6 +46,12 @@ interface TransportControl {
     suspend fun setRoutingMode(mode: TransportRoutingMode)
 }
 
+interface RelayTransportControl {
+    val diagnostics: StateFlow<RelayDiagnostics>
+    suspend fun setRelayNetworkMode(mode: RelayNetworkMode)
+    suspend fun setTorFallbackPolicy(policy: TorFallbackPolicy)
+}
+
 class LoopbackMeshTransport(
     private val scope: CoroutineScope
 ) : MeshTransport {

@@ -21,6 +21,8 @@
     <string name="settings_section_identity">Identit&#233;</string>
     <string name="settings_section_contacts">Contacts</string>
     <string name="settings_section_peers">Pairs LAN</string>
+    <string name="settings_section_transport_offline">Transport offline</string>
+    <string name="settings_section_relay_tor">Relay / Tor</string>
 
     <string name="action_qr_identity">QR identit&#233;</string>
     <string name="action_scan_qr">Scanner QR</string>
@@ -84,4 +86,40 @@
     <string name="preview_empty_contact_subtitle">Utilise Scanner QR pour importer un contact.</string>
     <string name="preview_status_active">Actif</string>
     <string name="preview_section_contacts">Contacts</string>
+
+    <string name="transport_routing_title">Routage</string>
+    <string name="transport_mode_auto">Auto</string>
+    <string name="transport_mode_lan">LAN</string>
+    <string name="transport_mode_bluetooth">Bluetooth</string>
+    <string name="transport_counts_line">LAN : %1$d &#8226; BT : %2$d</string>
+    <string name="transport_bluetooth_state_line">Bluetooth %1$s &#8226; permission %2$s</string>
+    <string name="transport_discovery_server_line">Discovery %1$s &#8226; serveur %2$s</string>
+    <string name="transport_state_on">activ&#233;</string>
+    <string name="transport_state_off">d&#233;sactiv&#233;</string>
+    <string name="transport_state_active">active</string>
+    <string name="transport_state_inactive">inactive</string>
+    <string name="transport_state_listening">&#224; l&#8217;&#233;coute</string>
+    <string name="transport_state_stopped">arr&#234;t&#233;</string>
+    <string name="transport_permission_ok">ok</string>
+    <string name="transport_permission_required">requise</string>
+    <string name="transport_bt_error">BT erreur : %1$s</string>
+
+    <string name="relay_tor_title">Relay r&#233;seau</string>
+    <string name="relay_enabled">activ&#233;</string>
+    <string name="relay_disabled">d&#233;sactiv&#233;</string>
+    <string name="relay_config_present">ok</string>
+    <string name="relay_config_missing">absente</string>
+    <string name="relay_status_line">Relay %1$s &#8226; config %2$s</string>
+    <string name="relay_mode_direct">Direct</string>
+    <string name="relay_mode_tor">Tor</string>
+    <string name="tor_policy_preferred">Tor pr&#233;f&#233;r&#233;</string>
+    <string name="tor_policy_strict">Tor strict</string>
+    <string name="tor_runtime_label">Tor runtime : %1$s</string>
+    <string name="tor_runtime_disabled">d&#233;sactiv&#233;</string>
+    <string name="tor_runtime_starting">d&#233;marrage (%1$d%%)</string>
+    <string name="tor_runtime_ready">pr&#234;t</string>
+    <string name="tor_runtime_ready_proxy">pr&#234;t (proxy utilis&#233;)</string>
+    <string name="tor_runtime_unavailable">non int&#233;gr&#233;</string>
+    <string name="tor_runtime_error">erreur</string>
+    <string name="relay_error_line">Relay erreur : %1$s</string>
 </resources>

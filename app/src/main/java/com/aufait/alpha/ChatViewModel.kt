@@ -9,10 +9,14 @@ import com.aufait.alpha.data.DiscoveredPeer
 import com.aufait.alpha.data.IdentityQrPayloadCodec
 import com.aufait.alpha.data.TransportDiagnostics
 import com.aufait.alpha.data.TransportRoutingMode
+import com.aufait.alpha.data.RelayNetworkMode
+import com.aufait.alpha.data.TorFallbackPolicy
+import com.aufait.alpha.data.TorRuntimeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,7 +51,16 @@ data class ChatUiState(
     val bluetoothPermissionGranted: Boolean = false,
     val bluetoothDiscoveryActive: Boolean = false,
     val bluetoothServerListening: Boolean = false,
-    val transportLastError: String? = null
+    val transportLastError: String? = null,
+    val relayEnabled: Boolean = false,
+    val relayConfigured: Boolean = false,
+    val relayNetworkMode: RelayNetworkMode = RelayNetworkMode.DIRECT,
+    val torFallbackPolicy: TorFallbackPolicy = TorFallbackPolicy.TOR_PREFERRED,
+    val torRuntimeState: TorRuntimeState = TorRuntimeState.DISABLED,
+    val torBootstrapPercent: Int = 0,
+    val torReady: Boolean = false,
+    val torUsingProxy: Boolean = false,
+    val relayLastError: String? = null
 )
 
 data class AttachmentDraft(
@@ -67,8 +80,9 @@ class ChatViewModel(
         container.messageRepository.messages,
         container.chatService.peers,
         container.contactRepository.contacts,
-        container.transportControl.diagnostics
-    ) { state, messages, peers, contacts, diagnostics ->
+        combine(container.transportControl.diagnostics, container.relayControl.diagnostics) { t, r -> t to r }
+    ) { state, messages, peers, contacts, diagPair ->
+        val (diagnostics, relayDiagnostics) = diagPair
         val selectedPeer = peers.firstOrNull { it.nodeId == state.selectedPeerNodeId } ?: peers.firstOrNull()
         val selectedContact = contacts.firstOrNull { it.userId == state.selectedContactUserId } ?: contacts.firstOrNull()
         val activeTargetLabel = selectedPeer?.alias ?: selectedContact?.alias ?: state.peerAlias
@@ -87,7 +101,16 @@ class ChatViewModel(
             bluetoothPermissionGranted = diagnostics.bluetoothPermissionGranted,
             bluetoothDiscoveryActive = diagnostics.bluetoothDiscoveryActive,
             bluetoothServerListening = diagnostics.bluetoothServerListening,
-            transportLastError = diagnostics.bluetoothLastError
+            transportLastError = diagnostics.bluetoothLastError,
+            relayEnabled = relayDiagnostics.enabled,
+            relayConfigured = relayDiagnostics.relayConfigured,
+            relayNetworkMode = relayDiagnostics.relayNetworkMode,
+            torFallbackPolicy = relayDiagnostics.torFallbackPolicy,
+            torRuntimeState = relayDiagnostics.torRuntimeState,
+            torBootstrapPercent = relayDiagnostics.torBootstrapPercent,
+            torReady = relayDiagnostics.torReady,
+            torUsingProxy = relayDiagnostics.torUsingProxy,
+            relayLastError = relayDiagnostics.lastError
         )
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, ChatUiState())
 
@@ -99,6 +122,11 @@ class ChatViewModel(
         }
 
         viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val prefs = container.relayPreferencesRepository.preferences.first()
+                container.relayControl.setTorFallbackPolicy(prefs.torFallbackPolicy)
+                container.relayControl.setRelayNetworkMode(prefs.relayNetworkMode)
+            }
             runCatching { container.identityRepository.getOrCreateIdentity() }
                 .onSuccess { identity ->
                     local.update {
@@ -189,6 +217,20 @@ class ChatViewModel(
     fun setTransportRoutingMode(mode: TransportRoutingMode) {
         viewModelScope.launch(Dispatchers.IO) {
             container.transportControl.setRoutingMode(mode)
+        }
+    }
+
+    fun setRelayNetworkMode(mode: RelayNetworkMode) {
+        viewModelScope.launch(Dispatchers.IO) {
+            container.relayPreferencesRepository.setRelayNetworkMode(mode)
+            container.relayControl.setRelayNetworkMode(mode)
+        }
+    }
+
+    fun setTorFallbackPolicy(policy: TorFallbackPolicy) {
+        viewModelScope.launch(Dispatchers.IO) {
+            container.relayPreferencesRepository.setTorFallbackPolicy(policy)
+            container.relayControl.setTorFallbackPolicy(policy)
         }
     }
 

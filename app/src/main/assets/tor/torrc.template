@@ -1,0 +1,7 @@
+SocksPort 127.0.0.1:${SOCKS_PORT}
+DataDirectory ${DATA_DIR}
+CacheDirectory ${CACHE_DIR}
+Log notice stdout
+AvoidDiskWrites 1
+${GEOIP_FILE_BLOCK}
+${GEOIP6_FILE_BLOCK}
