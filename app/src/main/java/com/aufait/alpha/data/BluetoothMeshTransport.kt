@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
+import android.bluetooth.BluetoothServerSocket
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -29,6 +30,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.LinkedHashMap
 import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -48,6 +50,7 @@ class BluetoothMeshTransport(
     private val _peers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
     private val _diagnostics = MutableStateFlow(TransportDiagnostics())
     private val peerTable = linkedMapOf<String, BtPeerRecord>()
+    private val seenInboundEvents = LinkedHashMap<String, Long>(256, 0.75f, true)
 
     override val inboundMessages: SharedFlow<InboundTransportMessage> = _inbound
     override val inboundReceipts: SharedFlow<InboundReceipt> = _receipts
@@ -110,6 +113,11 @@ class BluetoothMeshTransport(
             fallback.sendMessage(toPeer, messageId, body)
             return
         }
+        if (!target.endpointIsBonded()) {
+            updateBtError(SecurityException("Bluetooth cible non appairée"))
+            fallback.sendMessage(toPeer, messageId, body)
+            return
+        }
         val payload = JSONObject()
             .put("type", "msg")
             .put("nodeId", localNodeId)
@@ -126,6 +134,11 @@ class BluetoothMeshTransport(
     override suspend fun sendReceipt(toPeer: String, messageId: String, kind: ReceiptKind) {
         val target = resolveTargetPeer(toPeer)
         if (target == null) {
+            fallback.sendReceipt(toPeer, messageId, kind)
+            return
+        }
+        if (!target.endpointIsBonded()) {
+            updateBtError(SecurityException("Bluetooth cible non appairée"))
             fallback.sendReceipt(toPeer, messageId, kind)
             return
         }
@@ -240,17 +253,9 @@ class BluetoothMeshTransport(
                 continue
             }
 
-            runCatching {
-                adapter.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID).use { server ->
-                    isServerListening = true
-                    refreshDiagnostics()
-                    while (true) {
-                        val socket = server.accept() ?: continue
-                        scope.launch { handleIncomingSocket(socket) }
-                    }
-                }
-            }.onFailure {
-                updateBtError(it)
+            val accepted = runServerSockets(adapter)
+            if (!accepted) {
+                updateBtError(SecurityException("Impossible d'ouvrir un serveur Bluetooth RFCOMM"))
             }
             isServerListening = false
             refreshDiagnostics()
@@ -258,9 +263,32 @@ class BluetoothMeshTransport(
         }
     }
 
+    private fun runServerSockets(adapter: BluetoothAdapter): Boolean {
+        val factories = listOf<(BluetoothAdapter) -> BluetoothServerSocket>(
+            { it.listenUsingRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID) },
+            { it.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID) }
+        )
+        factories.forEach { createServer ->
+            val result = runCatching {
+                createServer(adapter).use { server ->
+                    isServerListening = true
+                    refreshDiagnostics()
+                    while (true) {
+                        val socket = server.accept() ?: continue
+                        scope.launch { handleIncomingSocket(socket) }
+                    }
+                }
+            }
+            if (result.isSuccess) return true
+            updateBtError(result.exceptionOrNull() ?: IllegalStateException("server failure"))
+        }
+        return false
+    }
+
     private fun handleIncomingSocket(socket: BluetoothSocket) {
         runCatching {
             val remoteAddress = socket.remoteDevice?.address.orEmpty()
+            if (remoteAddress.isBlank()) return@runCatching
             DataInputStream(socket.inputStream).use { input ->
                 while (true) {
                     val frame = readFrame(input) ?: break
@@ -282,7 +310,9 @@ class BluetoothMeshTransport(
     }
 
     private fun handleFrame(remoteAddress: String, frameBytes: ByteArray) {
+        if (frameBytes.isEmpty() || frameBytes.size > MAX_FRAME_BYTES) return
         val outerText = runCatching { frameBytes.toString(Charsets.UTF_8) }.getOrNull() ?: return
+        if (outerText.length > MAX_JSON_CHARS) return
         val outerJson = runCatching { JSONObject(outerText) }.getOrNull() ?: return
         val effectiveJson = if (outerJson.optString("type") == "secure") {
             unwrapSecurePayload(outerJson) ?: return
@@ -294,17 +324,27 @@ class BluetoothMeshTransport(
 
     private fun handlePayloadJson(remoteAddress: String, json: JSONObject) {
         val type = json.optString("type")
+        if (type !in ALLOWED_TYPES) return
         val nodeId = json.optString("nodeId").ifBlank { fallbackNodeIdForAddress(remoteAddress) }
+            .take(MAX_NODE_ID_CHARS)
         if (nodeId == localNodeId) return
         val alias = json.optString("alias").ifBlank { "Bluetooth ${remoteAddress.takeLast(5)}" }
+            .take(MAX_ALIAS_CHARS)
+        if (type != "hello" && !addressIsBonded(remoteAddress)) {
+            updateBtError(SecurityException("Trame Bluetooth refusée (device non appairé)"))
+            return
+        }
         upsertPeerFromTraffic(nodeId = nodeId, alias = alias, remoteAddress = remoteAddress)
 
         when (type) {
             "hello" -> Unit
             "msg" -> {
-                val body = json.optString("body")
-                val messageId = json.optString("messageId").ifBlank { "bt-${System.currentTimeMillis()}" }
+                val body = json.optString("body").take(MAX_BODY_CHARS)
+                val messageId = json.optString("messageId")
+                    .ifBlank { "bt-${System.currentTimeMillis()}" }
+                    .take(MAX_MESSAGE_ID_CHARS)
                 if (body.isBlank()) return
+                if (isDuplicateInboundEvent("$nodeId|msg|$messageId")) return
                 externalScope.launch {
                     _inbound.emit(
                         InboundTransportMessage(
@@ -317,13 +357,14 @@ class BluetoothMeshTransport(
                 }
             }
             "receipt" -> {
-                val messageId = json.optString("messageId")
+                val messageId = json.optString("messageId").take(MAX_MESSAGE_ID_CHARS)
                 val kind = when (json.optString("receiptKind").lowercase()) {
                     "delivered" -> ReceiptKind.DELIVERED
                     "read" -> ReceiptKind.READ
                     else -> null
                 }
                 if (messageId.isBlank() || kind == null) return
+                if (isDuplicateInboundEvent("$nodeId|receipt|$messageId|${kind.name}")) return
                 externalScope.launch {
                     _receipts.emit(
                         InboundReceipt(
@@ -355,6 +396,22 @@ class BluetoothMeshTransport(
         refreshDiagnostics()
     }
 
+    private fun isDuplicateInboundEvent(key: String): Boolean {
+        val now = System.currentTimeMillis()
+        synchronized(seenInboundEvents) {
+            seenInboundEvents.entries.removeIf { now - it.value > INBOUND_EVENT_TTL_MS }
+            val exists = seenInboundEvents.containsKey(key)
+            if (!exists) {
+                seenInboundEvents[key] = now
+                while (seenInboundEvents.size > MAX_TRACKED_EVENTS) {
+                    val eldestKey = seenInboundEvents.entries.iterator().next().key
+                    seenInboundEvents.remove(eldestKey)
+                }
+            }
+            return exists
+        }
+    }
+
     private suspend fun sendFrameWithRetry(
         target: DiscoveredPeer,
         payload: String,
@@ -374,21 +431,37 @@ class BluetoothMeshTransport(
         if (!adapter.isEnabled || !hasBluetoothConnectPermission()) return false
 
         val frameBytes = buildFrameBytes(target, payload, secure) ?: return false
-        return runCatching {
-            runCatching { adapter.cancelDiscovery() }
-            val device = adapter.getRemoteDevice(address)
-            val socket = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
-            socket.connect()
-            DataOutputStream(socket.outputStream).use { output ->
-                output.writeInt(frameBytes.size)
-                output.write(frameBytes)
-                output.flush()
-            }
-            socket.close()
-            true
-        }.onFailure {
-            updateBtError(it)
-        }.getOrDefault(false)
+        val device = runCatching { adapter.getRemoteDevice(address) }.getOrNull() ?: return false
+        return connectAndSend(adapter, device, frameBytes)
+    }
+
+    private fun connectAndSend(
+        adapter: BluetoothAdapter,
+        device: BluetoothDevice,
+        frameBytes: ByteArray
+    ): Boolean {
+        val socketFactories = listOf<(BluetoothDevice) -> BluetoothSocket>(
+            { it.createRfcommSocketToServiceRecord(SERVICE_UUID) },
+            { it.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID) }
+        )
+        socketFactories.forEach { createSocket ->
+            val sent = runCatching {
+                runCatching { adapter.cancelDiscovery() }
+                val socket = createSocket(device)
+                socket.connect()
+                DataOutputStream(socket.outputStream).use { output ->
+                    output.writeInt(frameBytes.size)
+                    output.write(frameBytes)
+                    output.flush()
+                }
+                socket.close()
+                true
+            }.onFailure {
+                updateBtError(it)
+            }.getOrDefault(false)
+            if (sent) return true
+        }
+        return false
     }
 
     private fun buildFrameBytes(target: DiscoveredPeer, payload: String, secure: Boolean): ByteArray? {
@@ -410,8 +483,10 @@ class BluetoothMeshTransport(
         val remoteNodeId = wrapper.optString("nodeId")
         val iv = wrapper.optString("iv")
         val cipher = wrapper.optString("cipher")
+        if (iv.length > MAX_BASE64_CHARS || cipher.length > MAX_BASE64_CHARS) return null
         if (remoteNodeId.isBlank() || iv.isBlank() || cipher.isBlank()) return null
         val plaintext = decryptTransportPayload(remoteNodeId, iv, cipher) ?: return null
+        if (plaintext.length > MAX_JSON_CHARS) return null
         return runCatching { JSONObject(plaintext) }.getOrNull()
     }
 
@@ -526,6 +601,20 @@ class BluetoothMeshTransport(
 
     private fun endpointFor(address: String): String = BT_ENDPOINT_PREFIX + address
 
+    private fun DiscoveredPeer.endpointIsBonded(): Boolean {
+        val address = endpoint.removePrefix(BT_ENDPOINT_PREFIX)
+        if (address == endpoint) return false
+        return addressIsBonded(address)
+    }
+
+    private fun addressIsBonded(address: String): Boolean {
+        val adapter = bluetoothAdapterOrNull() ?: return false
+        if (!adapter.isEnabled || !hasBluetoothConnectPermission()) return false
+        return runCatching {
+            adapter.bondedDevices.orEmpty().any { it.address.equals(address, ignoreCase = true) }
+        }.getOrDefault(false)
+    }
+
     private fun fallbackNodeIdForAddress(address: String): String =
         "bt-${address.filter { it.isLetterOrDigit() }.lowercase()}"
 
@@ -585,13 +674,22 @@ class BluetoothMeshTransport(
         private const val SERVICE_NAME = "AufaitAlphaMesh"
         private const val BT_ENDPOINT_PREFIX = "bt:"
         private const val MAX_FRAME_BYTES = 64 * 1024
+        private const val MAX_JSON_CHARS = 32 * 1024
+        private const val MAX_BASE64_CHARS = 48 * 1024
+        private const val MAX_ALIAS_CHARS = 64
+        private const val MAX_NODE_ID_CHARS = 128
+        private const val MAX_MESSAGE_ID_CHARS = 128
+        private const val MAX_BODY_CHARS = 4_000
         private const val HELLO_INTERVAL_MS = 10_000L
         private const val BONDED_REFRESH_MS = 5_000L
         private const val DISCOVERY_RESTART_MS = 20_000L
         private const val DISCOVERED_TTL_MS = 30_000L
+        private const val INBOUND_EVENT_TTL_MS = 2 * 60_000L
+        private const val MAX_TRACKED_EVENTS = 1024
         private val RETRY_DELAYS_MS = longArrayOf(0L, 300L, 900L)
         private const val AES_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val TRANSPORT_KEY_SALT = "aufait-alpha-bt-transport-v1"
+        private val ALLOWED_TYPES = setOf("hello", "msg", "receipt")
         private val SERVICE_UUID: UUID = UUID.fromString("5f7609b9-c4c9-4b5d-b4b8-1f5b9f78d4a1")
     }
 }
