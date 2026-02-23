@@ -14,19 +14,25 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
+import java.nio.charset.StandardCharsets
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
 import java.net.URLEncoder
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.Collections
 import java.util.ArrayDeque
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import java.util.concurrent.ConcurrentHashMap
 
 class RelayHttpMeshTransport(
     private val enabled: Boolean = false,
     private val relayUrl: String? = null,
-    private val torRuntime: TorRuntime
+    private val torRuntime: TorRuntime,
+    private val sharedSecret: String? = null
 ) : MeshTransport, RelayTransportControl {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _inboundMessages = MutableSharedFlow<InboundTransportMessage>(extraBufferCapacity = 8)
@@ -47,6 +53,7 @@ class RelayHttpMeshTransport(
     private val seenEventIds = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private val seenEventOrder = ArrayDeque<String>()
     private val seenEventLock = Any()
+    private val nonceRandom = SecureRandom()
 
     override suspend fun start(localAlias: String, localNodeId: String) {
         this.localAliasValue = localAlias
@@ -132,6 +139,7 @@ class RelayHttpMeshTransport(
             readTimeout = currentReadTimeoutMs()
             setRequestProperty("Accept", "application/json")
         }
+        applyAuthHeaders(conn, "GET", url, null)
         try {
             val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
             if (stream != null) {
@@ -202,6 +210,8 @@ class RelayHttpMeshTransport(
         retryDelaysMs().forEachIndexed { index, delayMs ->
             if (index > 0) delay(delayMs)
             val sent = runCatching {
+                val requestUrl = URL("$base/v1/push")
+                val payloadText = payload.toString()
                 val conn = openHttp(URL("$base/v1/push")).apply {
                     requestMethod = "POST"
                     connectTimeout = currentConnectTimeoutMs()
@@ -209,12 +219,14 @@ class RelayHttpMeshTransport(
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 }
+                applyAuthHeaders(conn, "POST", requestUrl, payloadText)
                 try {
                     conn.outputStream.use { os ->
-                        OutputStreamWriter(os, Charsets.UTF_8).use { it.write(payload.toString()) }
+                        OutputStreamWriter(os, Charsets.UTF_8).use { it.write(payloadText) }
                     }
-                    (if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream)?.close()
-                    true
+                    val code = conn.responseCode
+                    (if (code in 200..299) conn.inputStream else conn.errorStream)?.close()
+                    code in 200..299
                 } finally {
                     conn.disconnect()
                 }
@@ -246,6 +258,50 @@ class RelayHttpMeshTransport(
         } else {
             (url.openConnection() as HttpURLConnection).apply { instanceFollowRedirects = false }
         }
+    }
+
+    private fun applyAuthHeaders(
+        conn: HttpURLConnection,
+        method: String,
+        url: URL,
+        bodyText: String?
+    ) {
+        val secret = sharedSecret?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val timestampMs = System.currentTimeMillis()
+        val nonce = randomNonce()
+        val bodyBytes = bodyText?.toByteArray(StandardCharsets.UTF_8)
+        val bodyHashHex = sha256Hex(bodyBytes ?: ByteArray(0))
+        val pathAndQuery = buildString {
+            append(url.path.ifBlank { "/" })
+            url.query?.takeIf { it.isNotBlank() }?.let { append('?').append(it) }
+        }
+        val canonical = listOf(
+            method.uppercase(),
+            pathAndQuery,
+            timestampMs.toString(),
+            nonce,
+            bodyHashHex
+        ).joinToString("\n")
+        val signature = hmacSha256Hex(secret, canonical)
+        conn.setRequestProperty("X-AF-TS", timestampMs.toString())
+        conn.setRequestProperty("X-AF-NONCE", nonce)
+        conn.setRequestProperty("X-AF-SIG", signature)
+        conn.setRequestProperty("X-AF-ALG", "HMAC-SHA256")
+    }
+
+    private fun randomNonce(): String {
+        val bytes = ByteArray(16)
+        nonceRandom.nextBytes(bytes)
+        return bytes.joinToString("") { b -> "%02x".format(b) }
+    }
+
+    private fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { b -> "%02x".format(b) }
+
+    private fun hmacSha256Hex(secret: String, input: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret.toByteArray(StandardCharsets.UTF_8), "HmacSHA256"))
+        return mac.doFinal(input.toByteArray(StandardCharsets.UTF_8)).joinToString("") { b -> "%02x".format(b) }
     }
 
     private fun resolveProxyOrNull(): Proxy? {

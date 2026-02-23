@@ -63,7 +63,8 @@ import com.aufait.alpha.data.TorFallbackPolicy
 fun AlphaApp(
     viewModel: ChatViewModel,
     onScanContactQrRequest: () -> Unit = {},
-    onPickAttachmentRequest: () -> Unit = {}
+    onPickAttachmentRequest: () -> Unit = {},
+    onBluetoothPermissionRequest: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     EnFaitTheme {
@@ -81,7 +82,12 @@ fun AlphaApp(
                 onDismissContactImportStatus = viewModel::clearContactImportStatus,
                 onPickAttachmentRequest = onPickAttachmentRequest,
                 onClearAttachmentDraft = viewModel::clearAttachmentDraft,
-                onSetTransportRoutingMode = viewModel::setTransportRoutingMode,
+                onSetTransportRoutingMode = { mode ->
+                    if (mode != TransportRoutingMode.LAN_ONLY) {
+                        onBluetoothPermissionRequest()
+                    }
+                    viewModel.setTransportRoutingMode(mode)
+                },
                 onSetRelayNetworkMode = viewModel::setRelayNetworkMode,
                 onSetTorFallbackPolicy = viewModel::setTorFallbackPolicy
             )

@@ -55,12 +55,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
-        requestBluetoothPermissionsIfNeeded()
         setContent {
             AlphaApp(
                 viewModel = viewModel,
                 onScanContactQrRequest = ::requestContactQrScan,
-                onPickAttachmentRequest = ::openAttachmentPicker
+                onPickAttachmentRequest = ::openAttachmentPicker,
+                onBluetoothPermissionRequest = ::requestBluetoothPermissionsIfNeeded
             )
         }
     }
