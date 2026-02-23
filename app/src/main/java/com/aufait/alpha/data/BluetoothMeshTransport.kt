@@ -295,7 +295,6 @@ class BluetoothMeshTransport(
                     .build()
                 val data = AdvertiseData.Builder()
                     .addServiceUuid(bleServiceUuid)
-                    .addServiceData(bleServiceUuid, buildBleAdvertPayload())
                     .setIncludeDeviceName(false)
                     .build()
                 runCatching {
@@ -530,11 +529,10 @@ class BluetoothMeshTransport(
         val device = result.device ?: return
         if (!isSupportedMobileDevice(device)) return
         val scanRecord = result.scanRecord ?: return
-        val serviceData = scanRecord.getServiceData(bleServiceUuid) ?: return
-        if (!isEnFaitBleAdvert(serviceData)) return
+        val hasServiceUuid = scanRecord.serviceUuids?.any { it == bleServiceUuid } == true
+        if (!hasServiceUuid) return
         val address = device.address ?: return
-        val alias = parseBleAdvertAlias(serviceData)
-            ?: safeDeviceName(device)
+        val alias = safeDeviceName(device)
             ?: "${ENFAIT_DEVICE_PREFIX}${address.filter { it.isLetterOrDigit() }.takeLast(4)}"
         val now = System.currentTimeMillis()
         synchronized(bleSeenAddresses) {
@@ -840,26 +838,6 @@ class BluetoothMeshTransport(
         return name.startsWith(ENFAIT_DEVICE_PREFIX, ignoreCase = true)
     }
 
-    private fun buildBleAdvertPayload(): ByteArray {
-        val alias = localAlias.trim().ifBlank { "${ENFAIT_DEVICE_PREFIX}${localNodeId.takeLast(4)}" }
-        val payload = "$BLE_SERVICE_PREFIX|${alias.take(12)}"
-        val bytes = payload.toByteArray(Charsets.UTF_8)
-        return if (bytes.size <= MAX_BLE_SERVICE_DATA_BYTES) bytes else bytes.copyOf(MAX_BLE_SERVICE_DATA_BYTES)
-    }
-
-    private fun isEnFaitBleAdvert(serviceData: ByteArray): Boolean {
-        val text = runCatching { serviceData.toString(Charsets.UTF_8) }.getOrNull() ?: return false
-        return text.startsWith(BLE_SERVICE_PREFIX)
-    }
-
-    private fun parseBleAdvertAlias(serviceData: ByteArray): String? {
-        val text = runCatching { serviceData.toString(Charsets.UTF_8) }.getOrNull() ?: return null
-        if (!text.startsWith(BLE_SERVICE_PREFIX)) return null
-        val raw = text.substringAfter('|', "").trim().take(MAX_ALIAS_CHARS)
-        if (raw.isBlank()) return null
-        return if (raw.startsWith(ENFAIT_DEVICE_PREFIX, ignoreCase = true)) raw else "${ENFAIT_DEVICE_PREFIX}${raw}"
-    }
-
     private fun stopBleScanIfNeeded(adapter: BluetoothAdapter?) {
         if (!bleScanStarted) return
         val scanner = runCatching { adapter?.bluetoothLeScanner }.getOrNull() ?: return
@@ -955,9 +933,7 @@ class BluetoothMeshTransport(
         private val ALLOWED_TYPES = setOf("hello", "msg", "receipt")
         private val SERVICE_UUID: UUID = UUID.fromString("5f7609b9-c4c9-4b5d-b4b8-1f5b9f78d4a1")
         private const val ENFAIT_DEVICE_PREFIX = "EnFait-"
-        private const val BLE_SERVICE_PREFIX = "ENF1"
         private const val BLE_SEEN_TTL_MS = 90_000L
         private const val MAX_TRACKED_BLE_DEVICES = 256
-        private const val MAX_BLE_SERVICE_DATA_BYTES = 24
     }
 }
