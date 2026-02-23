@@ -26,6 +26,7 @@ class LanUdpMeshTransport(
     private val _inbound = MutableSharedFlow<InboundTransportMessage>(extraBufferCapacity = 32)
     private val _receipts = MutableSharedFlow<InboundReceipt>(extraBufferCapacity = 32)
     private val _peers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
+    private val _fallbackPeers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
 
     override val inboundMessages: SharedFlow<InboundTransportMessage> = _inbound
     override val inboundReceipts: SharedFlow<InboundReceipt> = _receipts
@@ -46,16 +47,18 @@ class LanUdpMeshTransport(
         fallback.start(localAlias, localNodeId)
         externalScope.launch {
             fallback.inboundMessages.collect { msg ->
-                if (_peers.value.isEmpty()) {
-                    _inbound.emit(msg)
-                }
+                _inbound.emit(msg)
             }
         }
         externalScope.launch {
             fallback.inboundReceipts.collect { receipt ->
-                if (_peers.value.isEmpty()) {
-                    _receipts.emit(receipt)
-                }
+                _receipts.emit(receipt)
+            }
+        }
+        externalScope.launch {
+            fallback.peers.collect { peers ->
+                _fallbackPeers.value = peers
+                publishPeers()
             }
         }
 
@@ -69,7 +72,7 @@ class LanUdpMeshTransport(
     }
 
     override suspend fun sendMessage(toPeer: String, messageId: String, body: String) {
-        val peersSnapshot = _peers.value
+        val peersSnapshot = currentLanPeers()
         if (peersSnapshot.isEmpty()) {
             fallback.sendMessage(toPeer, messageId, body)
             return
@@ -95,7 +98,7 @@ class LanUdpMeshTransport(
     }
 
     override suspend fun sendReceipt(toPeer: String, messageId: String, kind: ReceiptKind) {
-        val peersSnapshot = _peers.value
+        val peersSnapshot = currentLanPeers()
         if (peersSnapshot.isEmpty()) {
             fallback.sendReceipt(toPeer, messageId, kind)
             return
@@ -233,7 +236,12 @@ class LanUdpMeshTransport(
     }
 
     private fun publishPeers() {
-        _peers.value = peerTable.entries
+        val lanPeers = currentLanPeers()
+        _peers.value = if (lanPeers.isNotEmpty()) lanPeers else _fallbackPeers.value
+    }
+
+    private fun currentLanPeers(): List<DiscoveredPeer> {
+        return peerTable.entries
             .sortedBy { it.value.alias.lowercase() }
             .map { (nodeId, record) ->
                 DiscoveredPeer(

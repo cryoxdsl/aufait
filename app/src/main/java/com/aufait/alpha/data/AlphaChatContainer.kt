@@ -14,7 +14,8 @@ class AlphaChatContainer(context: Context) {
     val x3dhPreKeyRepository = X3dhPreKeyRepository(appContext)
     private val localCipher = LocalCipher()
     val messageRepository = EncryptedMessageRepository(appContext, localCipher)
-    private val lanTransport = LanUdpMeshTransport(scope)
+    private val bluetoothTransport = BluetoothMeshTransport(appContext, scope)
+    private val lanTransport = LanUdpMeshTransport(scope, fallback = bluetoothTransport)
     private val relayTransport = RelayHttpMeshTransport(
         enabled = false, // passer a true pour tester le mini-relai HTTP
         relayUrl = "http://10.0.2.2:8787" // emu Android -> machine hote; sur telephone utiliser IP LAN du PC

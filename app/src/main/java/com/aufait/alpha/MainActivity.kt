@@ -29,6 +29,9 @@ class MainActivity : ComponentActivity() {
     ) { granted ->
         if (granted) launchQrScan()
     }
+    private val bluetoothConnectPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* no-op for alpha */ }
     private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
         val content = result.contents ?: return@registerForActivityResult
         viewModel.importContactFromQr(content)
@@ -52,6 +55,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
+        requestBluetoothPermissionIfNeeded()
         setContent {
             AlphaApp(
                 viewModel = viewModel,
@@ -91,6 +95,17 @@ class MainActivity : ComponentActivity() {
             launchQrScan()
         } else {
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun requestBluetoothPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.BLUETOOTH_CONNECT
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            bluetoothConnectPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
         }
     }
 
