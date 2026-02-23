@@ -37,7 +37,7 @@
     <string name="conversation_empty_title">Aucun message pour le moment</string>
     <string name="conversation_empty_body">Envoie un premier message pour d&#233;marrer la conversation.</string>
 
-    <string name="day_today">Aujourd&#39;hui</string>
+    <string name="day_today">Aujourd\'hui</string>
     <string name="day_yesterday">Hier</string>
 
     <string name="receipt_read">Lu</string>
@@ -46,7 +46,7 @@
 
     <string name="peers_title">Pairs LAN</string>
     <string name="peers_empty_title">Aucun pair d&#233;tect&#233;</string>
-    <string name="peers_empty_body">Assure-toi d&#39;&#234;tre sur le m&#234;me r&#233;seau Wi-Fi pour d&#233;couvrir les pairs.</string>
+    <string name="peers_empty_body">Assure-toi d\'&#234;tre sur le m&#234;me r&#233;seau Wi-Fi pour d&#233;couvrir les pairs.</string>
 
     <string name="identity_local_title">Identit&#233; locale</string>
     <string name="identity_init_error">Erreur init : %1$s</string>
@@ -63,7 +63,7 @@
     <string name="contacts_imported_title">Contacts import&#233;s</string>
     <string name="contacts_count_only">%1$d</string>
     <string name="contacts_empty_title">Aucun contact import&#233;</string>
-    <string name="contacts_empty_body">Utilise l&#39;action Scanner QR pour ajouter un contact.</string>
+    <string name="contacts_empty_body">Utilise l\'action Scanner QR pour ajouter un contact.</string>
 
     <string name="qr_dialog_title">QR identit&#233;</string>
     <string name="qr_dialog_close">Fermer</string>
