@@ -1,4 +1,87 @@
 <resources>
     <string name="app_name">EnFait</string>
     <string name="notification_new_message">Nouveau message</string>
+
+    <string name="a11y_conversation_state_dot">&#201;tat de la conversation</string>
+    <string name="a11y_state_active">Active</string>
+    <string name="a11y_state_inactive">Inactive</string>
+    <string name="a11y_open_settings">Ouvrir la configuration</string>
+    <string name="a11y_date_separator">S&#233;parateur de date : %1$s</string>
+    <string name="a11y_message_outbound">Message envoy&#233;. Heure %1$s. %2$s. %3$s</string>
+    <string name="a11y_message_inbound">Message re&#231;u de %1$s. Heure %2$s. %3$s</string>
+    <string name="a11y_peer_selected">Pair s&#233;lectionn&#233;</string>
+    <string name="a11y_peer_not_selected">Pair non s&#233;lectionn&#233;</string>
+    <string name="a11y_contact_selected">Contact s&#233;lectionn&#233;</string>
+    <string name="a11y_contact_not_selected">Contact non s&#233;lectionn&#233;</string>
+    <string name="a11y_selected">S&#233;lectionn&#233;</string>
+
+    <string name="settings_title">Configuration</string>
+    <string name="settings_subtitle">Identit&#233;, contacts et s&#233;lection de pair</string>
+    <string name="settings_configure">Configurer</string>
+    <string name="settings_section_identity">Identit&#233;</string>
+    <string name="settings_section_contacts">Contacts</string>
+    <string name="settings_section_peers">Pairs LAN</string>
+
+    <string name="action_qr_identity">QR identit&#233;</string>
+    <string name="action_scan_qr">Scanner QR</string>
+
+    <string name="conversation_title">Conversation</string>
+    <string name="conversation_status_active">Actif</string>
+    <string name="conversation_status_inactive">Inactif</string>
+    <string name="conversation_live">En direct</string>
+    <string name="conversation_out_of_focus">Hors focus</string>
+    <string name="conversation_message_count">%1$d msg</string>
+    <string name="conversation_lan_count">LAN %1$d</string>
+    <string name="conversation_contacts_count">Contacts %1$d</string>
+    <string name="conversation_new_thread">Nouveau fil</string>
+    <string name="conversation_empty_title">Aucun message pour le moment</string>
+    <string name="conversation_empty_body">Envoie un premier message pour d&#233;marrer la conversation.</string>
+
+    <string name="day_today">Aujourd&#39;hui</string>
+    <string name="day_yesterday">Hier</string>
+
+    <string name="receipt_read">Lu</string>
+    <string name="receipt_delivered">Re&#231;u</string>
+    <string name="receipt_sent">Envoy&#233;</string>
+
+    <string name="peers_title">Pairs LAN</string>
+    <string name="peers_empty_title">Aucun pair d&#233;tect&#233;</string>
+    <string name="peers_empty_body">Assure-toi d&#39;&#234;tre sur le m&#234;me r&#233;seau Wi-Fi pour d&#233;couvrir les pairs.</string>
+
+    <string name="identity_local_title">Identit&#233; locale</string>
+    <string name="identity_init_error">Erreur init : %1$s</string>
+    <string name="identity_id">ID : %1$s</string>
+    <string name="identity_alias">Alias local : %1$s</string>
+    <string name="identity_fingerprint">Fingerprint : %1$s</string>
+    <string name="identity_alias_label">Alias local</string>
+    <string name="identity_save_alias">Sauver alias</string>
+    <string name="identity_target_peer">Pair cible : %1$s</string>
+    <string name="identity_peers_detected">Pairs LAN d&#233;tect&#233;s : %1$d</string>
+    <string name="identity_conversation_active">Conversation active (temps r&#233;el)</string>
+    <string name="identity_conversation_inactive">Conversation inactive (lecture diff&#233;r&#233;e)</string>
+
+    <string name="contacts_imported_title">Contacts import&#233;s</string>
+    <string name="contacts_count_only">%1$d</string>
+    <string name="contacts_empty_title">Aucun contact import&#233;</string>
+    <string name="contacts_empty_body">Utilise l&#39;action Scanner QR pour ajouter un contact.</string>
+
+    <string name="qr_dialog_title">QR identit&#233;</string>
+    <string name="qr_dialog_close">Fermer</string>
+    <string name="qr_dialog_image_cd">QR identit&#233;</string>
+    <string name="qr_dialog_error">Impossible de g&#233;n&#233;rer le QR</string>
+
+    <string name="composer_attach_cd">Ajouter une pi&#232;ce jointe</string>
+    <string name="composer_message_label">Message</string>
+    <string name="composer_send_cd">Envoyer</string>
+    <string name="composer_remove_file">Retirer fichier</string>
+    <string name="composer_file_meta_separator"> &#8226; </string>
+    <string name="size_bytes">%1$d B</string>
+    <string name="size_kb">%.1f KB</string>
+    <string name="size_mb">%.1f MB</string>
+
+    <string name="preview_contact_imported_alice">Contact import&#233; : Alice Martin</string>
+    <string name="preview_empty_contact_title">Aucun contact</string>
+    <string name="preview_empty_contact_subtitle">Utilise Scanner QR pour importer un contact.</string>
+    <string name="preview_status_active">Actif</string>
+    <string name="preview_section_contacts">Contacts</string>
 </resources>
