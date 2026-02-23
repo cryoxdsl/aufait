@@ -183,6 +183,7 @@ class RelayHttpMeshTransport(
                             fromPeer = fromAlias,
                             fromNodeId = fromNodeId,
                             body = body,
+                            channel = currentRelayInboundChannel(),
                             receivedAtMs = timestampMs
                         )
                     )
@@ -202,6 +203,7 @@ class RelayHttpMeshTransport(
                             fromPeer = fromAlias,
                             fromNodeId = fromNodeId,
                             kind = kind,
+                            channel = currentRelayInboundChannel(),
                             receivedAtMs = timestampMs
                         )
                     )
@@ -330,6 +332,16 @@ class RelayHttpMeshTransport(
         _diagnostics.value = _diagnostics.value.copy(
             lastError = error.message ?: error::class.java.simpleName
         )
+    }
+
+    private fun currentRelayInboundChannel(): MessageTransportChannel {
+        return if (relayNetworkMode == RelayNetworkMode.TOR && _diagnostics.value.torUsingProxy) {
+            MessageTransportChannel.TOR
+        } else if (relayNetworkMode == RelayNetworkMode.TOR) {
+            MessageTransportChannel.TOR
+        } else {
+            MessageTransportChannel.RELAY
+        }
     }
 
     private fun clearLastError() {

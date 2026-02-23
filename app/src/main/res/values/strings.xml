@@ -45,6 +45,11 @@
     <string name="receipt_read">Lu</string>
     <string name="receipt_delivered">Re&#231;u</string>
     <string name="receipt_sent">Envoy&#233;</string>
+    <string name="channel_local">local</string>
+    <string name="channel_wifi">Wi-Fi</string>
+    <string name="channel_bluetooth">BT</string>
+    <string name="channel_relay">relay</string>
+    <string name="channel_tor">Tor</string>
 
     <string name="peers_title">Pairs LAN</string>
     <string name="peers_empty_title">Aucun pair d&#233;tect&#233;</string>

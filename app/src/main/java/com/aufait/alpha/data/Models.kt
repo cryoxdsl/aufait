@@ -17,14 +17,25 @@ enum class ReceiptKind {
     READ
 }
 
+enum class MessageTransportChannel {
+    LOCAL,
+    WIFI,
+    BLUETOOTH,
+    RELAY,
+    TOR
+}
+
 data class ChatMessage(
     val id: String,
     val direction: MessageDirection,
     val author: String,
     val body: String,
     val timestampMs: Long,
+    val transportChannel: MessageTransportChannel? = null,
     val deliveredAtMs: Long? = null,
-    val readAtMs: Long? = null
+    val deliveredChannel: MessageTransportChannel? = null,
+    val readAtMs: Long? = null,
+    val readChannel: MessageTransportChannel? = null
 )
 
 data class ContactRecord(
@@ -42,8 +53,11 @@ data class StoredMessageEnvelope(
     val timestampMs: Long,
     val ivBase64: String,
     val cipherBase64: String,
+    val transportChannel: MessageTransportChannel? = null,
     val deliveredAtMs: Long? = null,
-    val readAtMs: Long? = null
+    val deliveredChannel: MessageTransportChannel? = null,
+    val readAtMs: Long? = null,
+    val readChannel: MessageTransportChannel? = null
 )
 
 enum class TransportRoutingMode {

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.LinkedHashMap
 import java.util.UUID
 
 class ChatService(
@@ -22,6 +23,9 @@ class ChatService(
     private var startedJob: Job? = null
     private var isConversationInForeground: Boolean = false
     private val pendingReadReceipts = mutableListOf<PendingReadReceipt>()
+    private val seenInboundMessages = LinkedHashMap<String, Long>(256, 0.75f, true)
+    private val seenInboundReceipts = LinkedHashMap<String, Long>(512, 0.75f, true)
+    private val seenEventsLock = Any()
     val peers: StateFlow<List<DiscoveredPeer>> = transport.peers
     val cryptoModeLabel: String get() = e2eCipherEngine.modeLabel
 
@@ -37,13 +41,15 @@ class ChatService(
                 scope.launch(start = CoroutineStart.DEFAULT) {
                     launch {
                         transport.inboundMessages.collect { inbound ->
+                            if (!markInboundMessageSeen(inbound)) return@collect
                             val plaintextBody = e2eCipherEngine.decryptFromPeer(inbound.fromPeer, inbound.body)
                             messageRepository.append(
                                 direction = MessageDirection.INBOUND,
                                 author = inbound.fromPeer,
                                 body = plaintextBody,
                                 timestampMs = inbound.receivedAtMs,
-                                id = "in-${inbound.messageId}"
+                                id = "in-${inbound.messageId}",
+                                transportChannel = inbound.channel
                             )
                             val inForeground = readReceiptMutex.withLock { isConversationInForeground }
                             if (inForeground) {
@@ -67,10 +73,12 @@ class ChatService(
                     }
                     launch {
                         transport.inboundReceipts.collect { receipt ->
+                            if (!markInboundReceiptSeen(receipt)) return@collect
                             messageRepository.markReceipt(
                                 messageId = receipt.messageId,
                                 receiptKind = receipt.kind,
-                                atMs = receipt.receivedAtMs
+                                atMs = receipt.receivedAtMs,
+                                channel = receipt.channel
                             )
                         }
                     }
@@ -87,7 +95,8 @@ class ChatService(
             direction = MessageDirection.OUTBOUND,
             author = "me:${me.id.take(6)}",
             body = body,
-            id = outboundMessageId
+            id = outboundMessageId,
+            transportChannel = null
         )
         transport.sendMessage(peerAlias, outboundMessageId, encryptedBody)
     }
@@ -141,4 +150,46 @@ class ChatService(
         val toPeer: String,
         val messageId: String
     )
+
+    private fun markInboundMessageSeen(inbound: InboundTransportMessage): Boolean {
+        val sender = inbound.fromNodeId.ifBlank { inbound.fromPeer }
+        val key = "msg|$sender|${inbound.messageId}"
+        return markSeen(seenInboundMessages, key, inbound.receivedAtMs)
+    }
+
+    private fun markInboundReceiptSeen(receipt: InboundReceipt): Boolean {
+        val sender = receipt.fromNodeId.ifBlank { receipt.fromPeer }
+        val key = "receipt|$sender|${receipt.messageId}|${receipt.kind.name}"
+        return markSeen(seenInboundReceipts, key, receipt.receivedAtMs)
+    }
+
+    private fun markSeen(cache: LinkedHashMap<String, Long>, key: String, timestampMs: Long): Boolean {
+        synchronized(seenEventsLock) {
+            pruneSeenCache(cache, timestampMs)
+            val existing = cache[key]
+            if (existing != null && (timestampMs <= existing + DUPLICATE_WINDOW_MS)) {
+                return false
+            }
+            cache[key] = timestampMs
+            while (cache.size > MAX_SEEN_EVENT_KEYS) {
+                val oldestKey = cache.entries.firstOrNull()?.key ?: break
+                cache.remove(oldestKey)
+            }
+            return true
+        }
+    }
+
+    private fun pruneSeenCache(cache: LinkedHashMap<String, Long>, nowMs: Long) {
+        val cutoff = nowMs - SEEN_EVENT_TTL_MS
+        val it = cache.entries.iterator()
+        while (it.hasNext()) {
+            if (it.next().value < cutoff) it.remove()
+        }
+    }
+
+    companion object {
+        private const val MAX_SEEN_EVENT_KEYS = 2_000
+        private const val SEEN_EVENT_TTL_MS = 10 * 60 * 1000L
+        private const val DUPLICATE_WINDOW_MS = 30_000L
+    }
 }

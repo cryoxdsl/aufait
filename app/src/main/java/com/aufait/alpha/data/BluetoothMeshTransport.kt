@@ -28,6 +28,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.EOFException
+import java.io.IOException
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.LinkedHashMap
@@ -351,7 +353,8 @@ class BluetoothMeshTransport(
                             messageId = messageId,
                             fromPeer = alias,
                             fromNodeId = nodeId,
-                            body = body
+                            body = body,
+                            channel = MessageTransportChannel.BLUETOOTH
                         )
                     )
                 }
@@ -371,7 +374,8 @@ class BluetoothMeshTransport(
                             messageId = messageId,
                             fromPeer = alias,
                             fromNodeId = nodeId,
-                            kind = kind
+                            kind = kind,
+                            channel = MessageTransportChannel.BLUETOOTH
                         )
                     )
                 }
@@ -608,9 +612,25 @@ class BluetoothMeshTransport(
     }
 
     private fun updateBtError(error: Throwable) {
+        if (isBenignBluetoothSocketClosure(error)) return
         _diagnostics.value = _diagnostics.value.copy(
             bluetoothLastError = error.message ?: error::class.java.simpleName
         )
+    }
+
+    private fun isBenignBluetoothSocketClosure(error: Throwable): Boolean {
+        if (error is EOFException) return true
+        val root = generateSequence(error) { it.cause }.lastOrNull() ?: error
+        if (root is EOFException) return true
+        if (root is IOException) {
+            val msg = (root.message ?: "").lowercase()
+            if ("read ret: -1" in msg) return true
+            if ("socket might closed or timeout" in msg) return true
+            if ("software caused connection abort" in msg) return true
+            if ("connection reset by peer" in msg) return true
+            if ("broken pipe" in msg) return true
+        }
+        return false
     }
 
     private fun endpointFor(address: String): String = BT_ENDPOINT_PREFIX + address

@@ -21,14 +21,31 @@ class EncryptedMessageRepository(
         author: String,
         body: String,
         timestampMs: Long = System.currentTimeMillis(),
-        id: String = UUID.randomUUID().toString()
+        id: String = UUID.randomUUID().toString(),
+        transportChannel: MessageTransportChannel? = null
     ): String {
         val now = System.currentTimeMillis()
         val current = normalizeAndPrune(loadStored(), now).toMutableList()
         val safeAuthor = author.trim().ifBlank { "peer" }.take(MAX_AUTHOR_CHARS)
         val safeBody = body.take(MAX_BODY_CHARS)
         val safeTimestamp = timestampMs.coerceIn(now - MAX_CLOCK_SKEW_MS, now + MAX_CLOCK_SKEW_MS)
-        val finalId = if (current.any { it.id == id }) UUID.randomUUID().toString() else id
+        val existingIndex = current.indexOfFirst { it.id == id }
+        if (existingIndex >= 0) {
+            val existing = current[existingIndex]
+            val merged = existing.copy(
+                transportChannel = mergeChannel(existing.transportChannel, transportChannel),
+                deliveredChannel = existing.deliveredChannel,
+                readChannel = existing.readChannel
+            )
+            if (merged != existing) {
+                current[existingIndex] = merged
+                val pruned = normalizeAndPrune(current, now)
+                saveStored(pruned)
+                _messages.value = pruned.map(::decryptEnvelope)
+            }
+            return existing.id
+        }
+        val finalId = id
         val (iv, data) = cipher.encrypt(safeBody)
         current += StoredMessageEnvelope(
             id = finalId,
@@ -37,7 +54,9 @@ class EncryptedMessageRepository(
             timestampMs = safeTimestamp,
             ivBase64 = iv,
             cipherBase64 = data,
+            transportChannel = transportChannel,
             deliveredAtMs = null,
+            deliveredChannel = null,
             readAtMs = null
         )
         val pruned = normalizeAndPrune(current, now)
@@ -46,7 +65,12 @@ class EncryptedMessageRepository(
         return finalId
     }
 
-    fun markReceipt(messageId: String, receiptKind: ReceiptKind, atMs: Long = System.currentTimeMillis()) {
+    fun markReceipt(
+        messageId: String,
+        receiptKind: ReceiptKind,
+        atMs: Long = System.currentTimeMillis(),
+        channel: MessageTransportChannel? = null
+    ) {
         val now = System.currentTimeMillis()
         val current = normalizeAndPrune(loadStored(), now).toMutableList()
         val index = current.indexOfFirst { it.id == messageId }
@@ -57,14 +81,30 @@ class EncryptedMessageRepository(
 
         val updated = when (receiptKind) {
             ReceiptKind.DELIVERED -> {
-                if (msg.deliveredAtMs != null) return
-                msg.copy(deliveredAtMs = safeAtMs)
+                val deliveredAtMs = msg.deliveredAtMs ?: safeAtMs
+                val deliveredChannel = mergeChannel(msg.deliveredChannel, channel)
+                if (deliveredAtMs == msg.deliveredAtMs && deliveredChannel == msg.deliveredChannel) return
+                msg.copy(
+                    deliveredAtMs = deliveredAtMs,
+                    deliveredChannel = deliveredChannel
+                )
             }
             ReceiptKind.READ -> {
-                if (msg.readAtMs != null) return
+                val readAtMs = msg.readAtMs ?: safeAtMs
+                val deliveredAtMs = msg.deliveredAtMs ?: safeAtMs
+                val deliveredChannel = mergeChannel(msg.deliveredChannel, channel)
+                val readChannel = mergeChannel(msg.readChannel, channel)
+                if (
+                    readAtMs == msg.readAtMs &&
+                    deliveredAtMs == msg.deliveredAtMs &&
+                    deliveredChannel == msg.deliveredChannel &&
+                    readChannel == msg.readChannel
+                ) return
                 msg.copy(
-                    deliveredAtMs = msg.deliveredAtMs ?: safeAtMs,
-                    readAtMs = safeAtMs
+                    deliveredAtMs = deliveredAtMs,
+                    deliveredChannel = deliveredChannel,
+                    readAtMs = readAtMs,
+                    readChannel = readChannel
                 )
             }
         }
@@ -88,8 +128,11 @@ class EncryptedMessageRepository(
             author = env.author,
             body = body,
             timestampMs = env.timestampMs,
+            transportChannel = env.transportChannel,
             deliveredAtMs = env.deliveredAtMs,
-            readAtMs = env.readAtMs
+            deliveredChannel = env.deliveredChannel,
+            readAtMs = env.readAtMs,
+            readChannel = env.readChannel
         )
     }
 
@@ -132,7 +175,10 @@ class EncryptedMessageRepository(
         if (id.isBlank() || ivBase64.isBlank() || cipherBase64.isBlank()) return null
         if (timestampMs <= 0L) return null
         val deliveredAtMs = o.optNullableLong("deliveredAtMs")
+        val transportChannel = o.optChannel("transportChannel")
+        val deliveredChannel = o.optChannel("deliveredChannel")
         val readAtMs = o.optNullableLong("readAtMs")
+        val readChannel = o.optChannel("readChannel")
         return StoredMessageEnvelope(
             id = id.take(64),
             direction = direction,
@@ -140,8 +186,11 @@ class EncryptedMessageRepository(
             timestampMs = timestampMs,
             ivBase64 = ivBase64.take(MAX_CIPHER_B64_CHARS),
             cipherBase64 = cipherBase64.take(MAX_CIPHER_B64_CHARS),
+            transportChannel = transportChannel,
             deliveredAtMs = deliveredAtMs,
-            readAtMs = readAtMs
+            deliveredChannel = deliveredChannel,
+            readAtMs = readAtMs,
+            readChannel = readChannel
         )
     }
 
@@ -162,8 +211,11 @@ class EncryptedMessageRepository(
                     ?.takeIf { it in env.timestampMs..(nowMs + MAX_CLOCK_SKEW_MS) }
                 env.copy(
                     author = env.author.trim().ifBlank { "peer" }.take(MAX_AUTHOR_CHARS),
+                    transportChannel = env.transportChannel,
                     deliveredAtMs = delivered,
-                    readAtMs = read
+                    deliveredChannel = env.deliveredChannel,
+                    readAtMs = read,
+                    readChannel = env.readChannel
                 )
             }
             .sortedBy { it.timestampMs }
@@ -182,8 +234,11 @@ class EncryptedMessageRepository(
                     put("timestampMs", msg.timestampMs)
                     put("ivBase64", msg.ivBase64)
                     put("cipherBase64", msg.cipherBase64)
+                    msg.transportChannel?.let { put("transportChannel", it.name) }
                     msg.deliveredAtMs?.let { put("deliveredAtMs", it) }
+                    msg.deliveredChannel?.let { put("deliveredChannel", it.name) }
                     msg.readAtMs?.let { put("readAtMs", it) }
+                    msg.readChannel?.let { put("readChannel", it.name) }
                 }
             )
         }
@@ -195,6 +250,24 @@ class EncryptedMessageRepository(
             }
             putString(KEY_MESSAGES_JSON, serialized)
         }.apply()
+    }
+
+    private fun mergeChannel(
+        existing: MessageTransportChannel?,
+        incoming: MessageTransportChannel?
+    ): MessageTransportChannel? {
+        if (incoming == null) return existing
+        if (existing == null) return incoming
+        if (existing == incoming) return existing
+        // Prioritise the strongest/most specific path when multiple channels are observed.
+        val rank = mapOf(
+            MessageTransportChannel.LOCAL to 0,
+            MessageTransportChannel.RELAY to 1,
+            MessageTransportChannel.WIFI to 2,
+            MessageTransportChannel.BLUETOOTH to 3,
+            MessageTransportChannel.TOR to 4
+        )
+        return if ((rank[incoming] ?: 0) >= (rank[existing] ?: 0)) incoming else existing
     }
 
     companion object {
@@ -211,3 +284,8 @@ class EncryptedMessageRepository(
 
 private fun JSONObject.optNullableLong(key: String): Long? =
     if (has(key) && !isNull(key)) getLong(key) else null
+
+private fun JSONObject.optChannel(key: String): MessageTransportChannel? =
+    optString(key).takeIf { it.isNotBlank() }?.let { raw ->
+        runCatching { MessageTransportChannel.valueOf(raw) }.getOrNull()
+    }

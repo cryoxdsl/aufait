@@ -13,6 +13,7 @@ data class InboundTransportMessage(
     val fromPeer: String,
     val fromNodeId: String = "",
     val body: String,
+    val channel: MessageTransportChannel = MessageTransportChannel.LOCAL,
     val receivedAtMs: Long = System.currentTimeMillis()
 )
 
@@ -21,6 +22,7 @@ data class InboundReceipt(
     val fromPeer: String,
     val fromNodeId: String = "",
     val kind: ReceiptKind,
+    val channel: MessageTransportChannel = MessageTransportChannel.LOCAL,
     val receivedAtMs: Long = System.currentTimeMillis()
 )
 
@@ -72,7 +74,8 @@ class LoopbackMeshTransport(
                 InboundReceipt(
                     messageId = messageId,
                     fromPeer = toPeer,
-                    kind = ReceiptKind.DELIVERED
+                    kind = ReceiptKind.DELIVERED,
+                    channel = MessageTransportChannel.LOCAL
                 )
             )
             delay(250)
@@ -80,7 +83,8 @@ class LoopbackMeshTransport(
                 InboundReceipt(
                     messageId = messageId,
                     fromPeer = toPeer,
-                    kind = ReceiptKind.READ
+                    kind = ReceiptKind.READ,
+                    channel = MessageTransportChannel.LOCAL
                 )
             )
         }
@@ -90,7 +94,8 @@ class LoopbackMeshTransport(
                 InboundTransportMessage(
                     messageId = "loopback-${System.currentTimeMillis()}",
                     fromPeer = toPeer,
-                    body = buildAutoReply(body)
+                    body = buildAutoReply(body),
+                    channel = MessageTransportChannel.LOCAL
                 )
             )
         }

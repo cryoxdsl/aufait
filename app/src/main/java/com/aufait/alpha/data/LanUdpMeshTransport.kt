@@ -226,7 +226,8 @@ class LanUdpMeshTransport(
                             messageId = messageId,
                             fromPeer = alias,
                             fromNodeId = nodeId,
-                            body = body
+                            body = body,
+                            channel = MessageTransportChannel.WIFI
                         )
                     )
                 }
@@ -245,7 +246,8 @@ class LanUdpMeshTransport(
                             messageId = messageId,
                             fromPeer = alias,
                             fromNodeId = nodeId,
-                            kind = kind
+                            kind = kind,
+                            channel = MessageTransportChannel.WIFI
                         )
                     )
                 }

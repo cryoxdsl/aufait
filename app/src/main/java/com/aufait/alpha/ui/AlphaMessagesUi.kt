@@ -52,6 +52,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.aufait.alpha.R
 import com.aufait.alpha.data.ChatMessage
+import com.aufait.alpha.data.MessageTransportChannel
 import com.aufait.alpha.data.MessageDirection
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -273,6 +274,21 @@ private fun MessageMetaLine(message: ChatMessage, outbound: Boolean) {
                 modifier = Modifier.size(14.dp),
                 tint = receipt.tint
             )
+            receipt.metaLine?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            message.transportChannel?.let { channel ->
+                Text(
+                    text = "• ${channelShortLabel(channel)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -280,16 +296,41 @@ private fun MessageMetaLine(message: ChatMessage, outbound: Boolean) {
 private data class ReceiptVisual(
     val icon: ImageVector,
     val tint: Color,
-    val label: String
+    val label: String,
+    val metaLine: String? = null
 )
 
 @Composable
 private fun receiptVisual(message: ChatMessage): ReceiptVisual {
     val scheme = MaterialTheme.colorScheme
+    val readMeta = listOfNotNull(
+        message.readAtMs?.let(::formatTime),
+        message.readChannel?.let { channelShortLabel(it) }
+    ).joinToString(" • ").takeIf { it.isNotBlank() }
+    val deliveredMeta = listOfNotNull(
+        message.deliveredAtMs?.let(::formatTime),
+        message.deliveredChannel?.let { channelShortLabel(it) }
+    ).joinToString(" • ").takeIf { it.isNotBlank() }
     return when {
-        message.readAtMs != null -> ReceiptVisual(Icons.Default.DoneAll, Color(0xFF60A5FA), stringResource(R.string.receipt_read))
-        message.deliveredAtMs != null -> ReceiptVisual(Icons.Default.DoneAll, scheme.onSurfaceVariant, stringResource(R.string.receipt_delivered))
-        else -> ReceiptVisual(Icons.Default.Done, scheme.onSurfaceVariant, stringResource(R.string.receipt_sent))
+        message.readAtMs != null -> ReceiptVisual(Icons.Default.DoneAll, Color(0xFF60A5FA), stringResource(R.string.receipt_read), readMeta)
+        message.deliveredAtMs != null -> ReceiptVisual(Icons.Default.DoneAll, scheme.onSurfaceVariant, stringResource(R.string.receipt_delivered), deliveredMeta)
+        else -> ReceiptVisual(
+            Icons.Default.Done,
+            scheme.onSurfaceVariant,
+            stringResource(R.string.receipt_sent),
+            message.transportChannel?.let { channelShortLabel(it) }
+        )
+    }
+}
+
+@Composable
+private fun channelShortLabel(channel: MessageTransportChannel): String {
+    return when (channel) {
+        MessageTransportChannel.LOCAL -> stringResource(R.string.channel_local)
+        MessageTransportChannel.WIFI -> stringResource(R.string.channel_wifi)
+        MessageTransportChannel.BLUETOOTH -> stringResource(R.string.channel_bluetooth)
+        MessageTransportChannel.RELAY -> stringResource(R.string.channel_relay)
+        MessageTransportChannel.TOR -> stringResource(R.string.channel_tor)
     }
 }
 
