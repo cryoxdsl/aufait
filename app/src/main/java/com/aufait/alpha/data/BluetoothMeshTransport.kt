@@ -584,11 +584,25 @@ class BluetoothMeshTransport(
         val adapter = bluetoothAdapterOrNull()
         val permissionGranted = hasBluetoothConnectPermission()
         val scanPermissionGranted = hasBluetoothScanPermission()
+        val bluetoothEnabled = if (permissionGranted) {
+            runCatching { adapter?.isEnabled == true }
+                .onFailure { updateBtError(it) }
+                .getOrDefault(false)
+        } else {
+            false
+        }
+        val adapterDiscoveryActive = if (scanPermissionGranted) {
+            runCatching { adapter?.isDiscovering == true }
+                .onFailure { updateBtError(it) }
+                .getOrDefault(false)
+        } else {
+            false
+        }
         _diagnostics.value = _diagnostics.value.copy(
             bluetoothPeerCount = _peers.value.size,
-            bluetoothEnabled = adapter?.isEnabled == true,
+            bluetoothEnabled = bluetoothEnabled,
             bluetoothPermissionGranted = permissionGranted && scanPermissionGranted,
-            bluetoothDiscoveryActive = isDiscoveryActive || (adapter?.isDiscovering == true),
+            bluetoothDiscoveryActive = isDiscoveryActive || adapterDiscoveryActive,
             bluetoothServerListening = isServerListening
         )
     }

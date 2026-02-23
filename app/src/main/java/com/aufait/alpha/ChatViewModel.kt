@@ -118,8 +118,14 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(Dispatchers.IO) {
-                container.chatService.start()
+            runCatching {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    container.chatService.start()
+                }
+            }.onFailure { error ->
+                local.update {
+                    it.copy(startupError = error.message ?: error::class.java.simpleName)
+                }
             }
         }
 
