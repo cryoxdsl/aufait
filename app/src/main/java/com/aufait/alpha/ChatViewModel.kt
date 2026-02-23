@@ -56,6 +56,8 @@ data class ChatUiState(
     val relayConfigured: Boolean = false,
     val relayNetworkMode: RelayNetworkMode = RelayNetworkMode.DIRECT,
     val torFallbackPolicy: TorFallbackPolicy = TorFallbackPolicy.TOR_PREFERRED,
+    val relaySharedSecretDraft: String = "",
+    val relaySharedSecretConfigured: Boolean = false,
     val torRuntimeState: TorRuntimeState = TorRuntimeState.DISABLED,
     val torBootstrapPercent: Int = 0,
     val torReady: Boolean = false,
@@ -126,6 +128,13 @@ class ChatViewModel(
                 val prefs = container.relayPreferencesRepository.preferences.first()
                 container.relayControl.setTorFallbackPolicy(prefs.torFallbackPolicy)
                 container.relayControl.setRelayNetworkMode(prefs.relayNetworkMode)
+                container.relayControl.setSharedSecret(prefs.sharedSecret)
+                local.update {
+                    it.copy(
+                        relaySharedSecretDraft = prefs.sharedSecret ?: "",
+                        relaySharedSecretConfigured = !prefs.sharedSecret.isNullOrBlank()
+                    )
+                }
             }
             runCatching { container.identityRepository.getOrCreateIdentity() }
                 .onSuccess { identity ->
@@ -231,6 +240,32 @@ class ChatViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             container.relayPreferencesRepository.setTorFallbackPolicy(policy)
             container.relayControl.setTorFallbackPolicy(policy)
+        }
+    }
+
+    fun onRelaySharedSecretDraftChanged(value: String) {
+        val normalized = value
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .take(256)
+        local.update { it.copy(relaySharedSecretDraft = normalized) }
+    }
+
+    fun saveRelaySharedSecret() {
+        val secret = uiState.value.relaySharedSecretDraft
+            .trim()
+            .take(256)
+            .ifBlank { "" }
+        viewModelScope.launch(Dispatchers.IO) {
+            val nullableSecret = secret.takeIf { it.isNotEmpty() }
+            container.relayPreferencesRepository.setSharedSecret(nullableSecret)
+            container.relayControl.setSharedSecret(nullableSecret)
+            local.update {
+                it.copy(
+                    relaySharedSecretDraft = nullableSecret ?: "",
+                    relaySharedSecretConfigured = nullableSecret != null
+                )
+            }
         }
     }
 

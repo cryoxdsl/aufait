@@ -50,6 +50,7 @@ interface RelayTransportControl {
     val diagnostics: StateFlow<RelayDiagnostics>
     suspend fun setRelayNetworkMode(mode: RelayNetworkMode)
     suspend fun setTorFallbackPolicy(policy: TorFallbackPolicy)
+    suspend fun setSharedSecret(secret: String?)
 }
 
 class LoopbackMeshTransport(

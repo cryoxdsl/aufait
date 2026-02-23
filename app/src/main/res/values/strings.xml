@@ -112,6 +112,12 @@
     <string name="relay_status_line">Relay %1$s &#8226; config %2$s</string>
     <string name="relay_mode_direct">Direct</string>
     <string name="relay_mode_tor">Tor</string>
+    <string name="relay_secret_label">Secret relay (HMAC)</string>
+    <string name="relay_secret_show">Voir</string>
+    <string name="relay_secret_hide">Masquer</string>
+    <string name="relay_secret_save">Sauver</string>
+    <string name="relay_secret_status_configured">Secret configur&#233;</string>
+    <string name="relay_secret_status_empty">Aucun secret (auth d&#233;sactiv&#233;e)</string>
     <string name="tor_policy_preferred">Tor pr&#233;f&#233;r&#233;</string>
     <string name="tor_policy_strict">Tor strict</string>
     <string name="tor_runtime_label">Tor runtime : %1$s</string>

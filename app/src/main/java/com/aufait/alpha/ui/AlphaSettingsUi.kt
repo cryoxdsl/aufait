@@ -33,6 +33,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +50,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -72,7 +78,9 @@ internal fun SettingsBottomSheet(
     onSelectPeer: (String) -> Unit,
     onSetTransportRoutingMode: (TransportRoutingMode) -> Unit,
     onSetRelayNetworkMode: (RelayNetworkMode) -> Unit,
-    onSetTorFallbackPolicy: (TorFallbackPolicy) -> Unit
+    onSetTorFallbackPolicy: (TorFallbackPolicy) -> Unit,
+    onRelaySharedSecretDraftChanged: (String) -> Unit,
+    onSaveRelaySharedSecret: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     ModalBottomSheet(
@@ -112,7 +120,9 @@ internal fun SettingsBottomSheet(
             RelayTorCard(
                 state = state,
                 onSetRelayNetworkMode = onSetRelayNetworkMode,
-                onSetTorFallbackPolicy = onSetTorFallbackPolicy
+                onSetTorFallbackPolicy = onSetTorFallbackPolicy,
+                onRelaySharedSecretDraftChanged = onRelaySharedSecretDraftChanged,
+                onSaveRelaySharedSecret = onSaveRelaySharedSecret
             )
             Spacer(Modifier.height(10.dp))
             SheetSectionHeader(stringResource(R.string.settings_section_identity))
@@ -251,8 +261,11 @@ private fun TransportModeChip(
 private fun RelayTorCard(
     state: ChatUiState,
     onSetRelayNetworkMode: (RelayNetworkMode) -> Unit,
-    onSetTorFallbackPolicy: (TorFallbackPolicy) -> Unit
+    onSetTorFallbackPolicy: (TorFallbackPolicy) -> Unit,
+    onRelaySharedSecretDraftChanged: (String) -> Unit,
+    onSaveRelaySharedSecret: () -> Unit
 ) {
+    var showSecret by rememberSaveable { mutableStateOf(false) }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
@@ -313,6 +326,43 @@ private fun RelayTorCard(
                 stringResource(R.string.tor_runtime_label, torStateLabel),
                 style = MaterialTheme.typography.labelMedium
             )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = state.relaySharedSecretDraft,
+                onValueChange = onRelaySharedSecretDraftChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.relay_secret_label)) },
+                singleLine = true,
+                visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    TextButton(onClick = { showSecret = !showSecret }) {
+                        Text(
+                            if (showSecret) stringResource(R.string.relay_secret_hide) else stringResource(R.string.relay_secret_show)
+                        )
+                    }
+                }
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (state.relaySharedSecretConfigured) {
+                        stringResource(R.string.relay_secret_status_configured)
+                    } else {
+                        stringResource(R.string.relay_secret_status_empty)
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(onClick = onSaveRelaySharedSecret) {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.relay_secret_save))
+                }
+            }
             state.relayLastError?.takeIf { it.isNotBlank() }?.let { err ->
                 Spacer(Modifier.height(4.dp))
                 Text(

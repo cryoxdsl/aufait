@@ -89,7 +89,9 @@ fun AlphaApp(
                     viewModel.setTransportRoutingMode(mode)
                 },
                 onSetRelayNetworkMode = viewModel::setRelayNetworkMode,
-                onSetTorFallbackPolicy = viewModel::setTorFallbackPolicy
+                onSetTorFallbackPolicy = viewModel::setTorFallbackPolicy,
+                onRelaySharedSecretDraftChanged = viewModel::onRelaySharedSecretDraftChanged,
+                onSaveRelaySharedSecret = viewModel::saveRelaySharedSecret
             )
         }
     }
@@ -112,7 +114,9 @@ private fun AlphaScreen(
     onClearAttachmentDraft: () -> Unit,
     onSetTransportRoutingMode: (TransportRoutingMode) -> Unit,
     onSetRelayNetworkMode: (RelayNetworkMode) -> Unit,
-    onSetTorFallbackPolicy: (TorFallbackPolicy) -> Unit
+    onSetTorFallbackPolicy: (TorFallbackPolicy) -> Unit,
+    onRelaySharedSecretDraftChanged: (String) -> Unit,
+    onSaveRelaySharedSecret: () -> Unit
 ) {
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
 
@@ -136,7 +140,9 @@ private fun AlphaScreen(
             onSelectPeer = onSelectPeer,
             onSetTransportRoutingMode = onSetTransportRoutingMode,
             onSetRelayNetworkMode = onSetRelayNetworkMode,
-            onSetTorFallbackPolicy = onSetTorFallbackPolicy
+            onSetTorFallbackPolicy = onSetTorFallbackPolicy,
+            onRelaySharedSecretDraftChanged = onRelaySharedSecretDraftChanged,
+            onSaveRelaySharedSecret = onSaveRelaySharedSecret
         )
     }
 
@@ -354,7 +360,9 @@ private fun AlphaScreenPreview() {
             onClearAttachmentDraft = {},
             onSetTransportRoutingMode = {},
             onSetRelayNetworkMode = {},
-            onSetTorFallbackPolicy = {}
+            onSetTorFallbackPolicy = {},
+            onRelaySharedSecretDraftChanged = {},
+            onSaveRelaySharedSecret = {}
         )
     }
 }

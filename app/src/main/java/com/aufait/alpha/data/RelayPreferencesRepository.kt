@@ -12,7 +12,8 @@ private val Context.relayPrefsDataStore by preferencesDataStore(name = "relay_pr
 
 data class RelayPreferences(
     val relayNetworkMode: RelayNetworkMode = RelayNetworkMode.DIRECT,
-    val torFallbackPolicy: TorFallbackPolicy = TorFallbackPolicy.TOR_PREFERRED
+    val torFallbackPolicy: TorFallbackPolicy = TorFallbackPolicy.TOR_PREFERRED,
+    val sharedSecret: String? = null
 )
 
 class RelayPreferencesRepository(
@@ -33,6 +34,19 @@ class RelayPreferencesRepository(
         }
     }
 
+    suspend fun setSharedSecret(secret: String?) {
+        appContext.relayPrefsDataStore.edit { prefs ->
+            val normalized = secret
+                ?.replace('\n', ' ')
+                ?.replace('\r', ' ')
+                ?.trim()
+                ?.take(MAX_SHARED_SECRET_CHARS)
+                ?.takeIf { it.isNotEmpty() }
+            if (normalized == null) prefs.remove(KEY_RELAY_SHARED_SECRET)
+            else prefs[KEY_RELAY_SHARED_SECRET] = normalized
+        }
+    }
+
     private fun Preferences.toRelayPreferences(): RelayPreferences {
         val relayMode = this[KEY_RELAY_NETWORK_MODE]
             ?.let { raw -> RelayNetworkMode.values().firstOrNull { it.name == raw } }
@@ -42,12 +56,20 @@ class RelayPreferencesRepository(
             ?: TorFallbackPolicy.TOR_PREFERRED
         return RelayPreferences(
             relayNetworkMode = relayMode,
-            torFallbackPolicy = torPolicy
+            torFallbackPolicy = torPolicy,
+            sharedSecret = this[KEY_RELAY_SHARED_SECRET]
+                ?.replace('\n', ' ')
+                ?.replace('\r', ' ')
+                ?.trim()
+                ?.take(MAX_SHARED_SECRET_CHARS)
+                ?.takeIf { it.isNotEmpty() }
         )
     }
 
     companion object {
         private val KEY_RELAY_NETWORK_MODE = stringPreferencesKey("relay_network_mode")
         private val KEY_TOR_FALLBACK_POLICY = stringPreferencesKey("tor_fallback_policy")
+        private val KEY_RELAY_SHARED_SECRET = stringPreferencesKey("relay_shared_secret")
+        private const val MAX_SHARED_SECRET_CHARS = 256
     }
 }

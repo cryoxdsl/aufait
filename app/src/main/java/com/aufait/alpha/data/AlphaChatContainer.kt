@@ -22,7 +22,7 @@ class AlphaChatContainer(context: Context) {
         enabled = false, // passer a true pour tester le mini-relai HTTP
         relayUrl = "http://10.0.2.2:8787", // emu Android -> machine hote; sur telephone utiliser IP LAN du PC
         torRuntime = torRuntime,
-        sharedSecret = null // optionnel: mettre le meme secret que AUFAIT_RELAY_SHARED_SECRET cote relay
+        initialSharedSecret = null // secret charge ensuite depuis DataStore (UI)
     )
     private val transport = HybridMeshTransport(scope, lan = lanTransport, relay = relayTransport)
     val transportControl: TransportControl = lanTransport

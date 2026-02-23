@@ -32,7 +32,7 @@ class RelayHttpMeshTransport(
     private val enabled: Boolean = false,
     private val relayUrl: String? = null,
     private val torRuntime: TorRuntime,
-    private val sharedSecret: String? = null
+    initialSharedSecret: String? = null
 ) : MeshTransport, RelayTransportControl {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _inboundMessages = MutableSharedFlow<InboundTransportMessage>(extraBufferCapacity = 8)
@@ -50,6 +50,7 @@ class RelayHttpMeshTransport(
     @Volatile private var localNodeIdValue: String = ""
     @Volatile private var relayNetworkMode: RelayNetworkMode = RelayNetworkMode.DIRECT
     @Volatile private var torFallbackPolicy: TorFallbackPolicy = TorFallbackPolicy.TOR_PREFERRED
+    @Volatile private var sharedSecret: String? = initialSharedSecret?.trim()?.takeIf { it.isNotEmpty() }
     private val seenEventIds = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private val seenEventOrder = ArrayDeque<String>()
     private val seenEventLock = Any()
@@ -89,6 +90,10 @@ class RelayHttpMeshTransport(
     override suspend fun setTorFallbackPolicy(policy: TorFallbackPolicy) {
         torFallbackPolicy = policy
         refreshDiagnostics()
+    }
+
+    override suspend fun setSharedSecret(secret: String?) {
+        sharedSecret = secret?.trim()?.take(MAX_SHARED_SECRET_CHARS)?.takeIf { it.isNotEmpty() }
     }
 
     override suspend fun sendMessage(toPeer: String, messageId: String, body: String) {
@@ -266,7 +271,7 @@ class RelayHttpMeshTransport(
         url: URL,
         bodyText: String?
     ) {
-        val secret = sharedSecret?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val secret = sharedSecret ?: return
         val timestampMs = System.currentTimeMillis()
         val nonce = randomNonce()
         val bodyBytes = bodyText?.toByteArray(StandardCharsets.UTF_8)
@@ -366,5 +371,6 @@ class RelayHttpMeshTransport(
         private const val TOR_POLL_INTERVAL_MS = 4_000L
         private const val MAX_SEEN_EVENT_IDS = 2_000
         private const val MAX_RELAY_MESSAGE_BODY_CHARS = 16_000
+        private const val MAX_SHARED_SECRET_CHARS = 256
     }
 }
