@@ -37,10 +37,11 @@ class ChatService(
                 scope.launch(start = CoroutineStart.DEFAULT) {
                     launch {
                         transport.inboundMessages.collect { inbound ->
+                            val plaintextBody = e2eCipherEngine.decryptFromPeer(inbound.fromPeer, inbound.body)
                             messageRepository.append(
                                 direction = MessageDirection.INBOUND,
                                 author = inbound.fromPeer,
-                                body = e2eCipherEngine.decryptFromPeer(inbound.fromPeer, inbound.body),
+                                body = plaintextBody,
                                 timestampMs = inbound.receivedAtMs,
                                 id = "in-${inbound.messageId}"
                             )
@@ -50,7 +51,7 @@ class ChatService(
                             } else {
                                 backgroundMessageNotifier.notifyIncomingMessage(
                                     fromPeer = inbound.fromPeer,
-                                    body = inbound.body
+                                    body = plaintextBody
                                 )
                             }
                             transport.sendReceipt(

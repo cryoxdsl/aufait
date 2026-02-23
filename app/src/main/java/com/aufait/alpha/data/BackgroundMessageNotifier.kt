@@ -23,13 +23,18 @@ class BackgroundMessageNotifier(context: Context) {
 
     fun notifyIncomingMessage(fromPeer: String, body: String) {
         runCatching {
+            val safeTitle = fromPeer.trim().ifBlank { appContext.getString(R.string.app_name) }.take(48)
+            val safeBody = body.trim().ifBlank { appContext.getString(R.string.notification_new_message) }.replace('\n', ' ').take(180)
             val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_chat)
-                .setContentTitle(fromPeer)
-                .setContentText(body.ifBlank { appContext.getString(R.string.notification_new_message) })
-                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setContentTitle(safeTitle)
+                .setContentText(safeBody)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(safeBody))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setOnlyAlertOnce(true)
+                .setLocalOnly(true)
                 .setAutoCancel(true)
                 .setContentIntent(buildOpenAppIntent())
                 .build()
@@ -60,6 +65,7 @@ class BackgroundMessageNotifier(context: Context) {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Notifications des nouveaux messages"
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
             enableVibration(true)
             setSound(
                 android.provider.Settings.System.DEFAULT_NOTIFICATION_URI,

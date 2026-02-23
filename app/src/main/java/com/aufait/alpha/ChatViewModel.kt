@@ -261,13 +261,25 @@ class ChatViewModel(
         mimeType: String?,
         sizeBytes: Long?
     ) {
+        val safeName = displayName
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .trim()
+            .ifBlank { "fichier" }
+            .take(120)
+        val safeMime = mimeType
+            ?.replace('\n', ' ')
+            ?.replace('\r', ' ')
+            ?.trim()
+            ?.take(80)
+        val safeSize = sizeBytes?.takeIf { it in 0..MAX_ATTACHMENT_SIZE_BYTES }
         local.update {
             it.copy(
                 attachmentDraft = AttachmentDraft(
                     uriString = uriString,
-                    displayName = displayName.ifBlank { "fichier" },
-                    mimeType = mimeType,
-                    sizeBytes = sizeBytes
+                    displayName = safeName,
+                    mimeType = safeMime,
+                    sizeBytes = safeSize
                 )
             )
         }
@@ -307,7 +319,8 @@ class ChatViewModel(
             attachment.sizeBytes?.let { append(" (").append(formatBytes(it)).append(")") }
             attachment.mimeType?.takeIf { it.isNotBlank() }?.let { append(" • ").append(it) }
         }
-        return if (text.isBlank()) attachmentLine else "$attachmentLine\n$text"
+        val combined = if (text.isBlank()) attachmentLine else "$attachmentLine\n$text"
+        return combined.take(MAX_OUTBOUND_BODY_CHARS)
     }
 
     private fun formatBytes(size: Long): String {
@@ -316,5 +329,10 @@ class ChatViewModel(
         if (kb < 1024) return String.format(Locale.US, "%.1f KB", kb)
         val mb = kb / 1024.0
         return String.format(Locale.US, "%.1f MB", mb)
+    }
+
+    companion object {
+        private const val MAX_ATTACHMENT_SIZE_BYTES = 64L * 1024L * 1024L
+        private const val MAX_OUTBOUND_BODY_CHARS = 8_000
     }
 }

@@ -13,6 +13,7 @@ class ContactRepository(context: Context) {
 
     fun importFromQrPayload(payload: String): ContactRecord? {
         val decoded = IdentityQrPayloadCodec.decode(payload) ?: return null
+        if (!isSafeContactPayload(decoded)) return null
         val contact = ContactRecord(
             userId = decoded.userId,
             alias = decoded.alias.trim().ifBlank { "contact-${decoded.userId.take(6)}" }.take(32),
@@ -31,6 +32,14 @@ class ContactRepository(context: Context) {
         else current += contact
         saveContacts(current)
         _contacts.value = current.sortedBy { it.alias.lowercase() }
+    }
+
+    private fun isSafeContactPayload(payload: ContactIdentityPayload): Boolean {
+        if (payload.userId.length !in 8..128) return false
+        if (payload.alias.length !in 1..64) return false
+        if (payload.publicKeyBase64.length !in 16..4096) return false
+        if (payload.fingerprint.length > 128) return false
+        return true
     }
 
     private fun loadContacts(): List<ContactRecord> {

@@ -20,6 +20,7 @@ import java.net.Proxy
 import java.net.URL
 import java.net.URLEncoder
 import java.util.Collections
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 
 class RelayHttpMeshTransport(
@@ -44,6 +45,8 @@ class RelayHttpMeshTransport(
     @Volatile private var relayNetworkMode: RelayNetworkMode = RelayNetworkMode.DIRECT
     @Volatile private var torFallbackPolicy: TorFallbackPolicy = TorFallbackPolicy.TOR_PREFERRED
     private val seenEventIds = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private val seenEventOrder = ArrayDeque<String>()
+    private val seenEventLock = Any()
 
     override suspend fun start(localAlias: String, localNodeId: String) {
         this.localAliasValue = localAlias
@@ -90,7 +93,7 @@ class RelayHttpMeshTransport(
                 .put("messageId", messageId)
                 .put("fromNodeId", localNodeIdValue)
                 .put("fromAlias", localAliasValue)
-                .put("body", body)
+                .put("body", body.take(MAX_RELAY_MESSAGE_BODY_CHARS))
         )
     }
 
@@ -129,21 +132,27 @@ class RelayHttpMeshTransport(
             readTimeout = currentReadTimeoutMs()
             setRequestProperty("Accept", "application/json")
         }
-        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream ?: return
-        stream.use { input ->
-            val text = input.bufferedReader().use { reader -> reader.readText() }
-            val root = JSONObject(text)
-            val events = root.optJSONArray("events") ?: JSONArray()
-            for (i in 0 until events.length()) {
-                handleRelayEvent(events.optJSONObject(i) ?: continue)
+        try {
+            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+            if (stream != null) {
+                stream.use { input ->
+                    val text = input.bufferedReader().use { reader -> reader.readText() }
+                    val root = JSONObject(text)
+                    val events = root.optJSONArray("events") ?: JSONArray()
+                    for (i in 0 until events.length()) {
+                        handleRelayEvent(events.optJSONObject(i) ?: continue)
+                    }
+                }
             }
+            clearLastError()
+        } finally {
+            conn.disconnect()
         }
-        conn.disconnect()
     }
 
     private fun handleRelayEvent(event: JSONObject) {
         val eventId = event.optString("eventId")
-        if (eventId.isNotBlank() && !seenEventIds.add(eventId)) return
+        if (eventId.isNotBlank() && !markSeenEvent(eventId)) return
         val type = event.optString("type")
         val messageId = event.optString("messageId")
         val fromNodeId = event.optString("fromNodeId")
@@ -188,10 +197,10 @@ class RelayHttpMeshTransport(
         }
     }
 
-    private fun postEvent(payload: JSONObject) {
+    private suspend fun postEvent(payload: JSONObject) {
         val base = relayUrl?.trim()?.trimEnd('/') ?: return
         retryDelaysMs().forEachIndexed { index, delayMs ->
-            if (index > 0) Thread.sleep(delayMs)
+            if (index > 0) delay(delayMs)
             val sent = runCatching {
                 val conn = openHttp(URL("$base/v1/push")).apply {
                     requestMethod = "POST"
@@ -200,14 +209,20 @@ class RelayHttpMeshTransport(
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 }
-                conn.outputStream.use { os ->
-                    OutputStreamWriter(os, Charsets.UTF_8).use { it.write(payload.toString()) }
+                try {
+                    conn.outputStream.use { os ->
+                        OutputStreamWriter(os, Charsets.UTF_8).use { it.write(payload.toString()) }
+                    }
+                    (if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream)?.close()
+                    true
+                } finally {
+                    conn.disconnect()
                 }
-                (if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream)?.close()
-                conn.disconnect()
-                true
             }.onFailure { setLastError(it) }.getOrDefault(false)
-            if (sent) return
+            if (sent) {
+                clearLastError()
+                return
+            }
         }
     }
 
@@ -227,9 +242,9 @@ class RelayHttpMeshTransport(
         val proxy = resolveProxyOrNull()
         refreshDiagnostics(proxy != null)
         return if (proxy != null) {
-            (url.openConnection(proxy) as HttpURLConnection)
+            (url.openConnection(proxy) as HttpURLConnection).apply { instanceFollowRedirects = false }
         } else {
-            (url.openConnection() as HttpURLConnection)
+            (url.openConnection() as HttpURLConnection).apply { instanceFollowRedirects = false }
         }
     }
 
@@ -240,7 +255,9 @@ class RelayHttpMeshTransport(
         val port = tor.socksPort
         val torReady = tor.state == TorRuntimeState.READY && !host.isNullOrBlank() && port != null && port > 0
         if (torReady) {
-            return Proxy(Proxy.Type.SOCKS, InetSocketAddress(host, port))
+            val resolvedHost = host!!
+            val resolvedPort = port!!
+            return Proxy(Proxy.Type.SOCKS, InetSocketAddress(resolvedHost, resolvedPort))
         }
         return when (torFallbackPolicy) {
             TorFallbackPolicy.TOR_PREFERRED -> null
@@ -252,6 +269,23 @@ class RelayHttpMeshTransport(
         _diagnostics.value = _diagnostics.value.copy(
             lastError = error.message ?: error::class.java.simpleName
         )
+    }
+
+    private fun clearLastError() {
+        if (_diagnostics.value.lastError == null) return
+        _diagnostics.value = _diagnostics.value.copy(lastError = null)
+    }
+
+    private fun markSeenEvent(eventId: String): Boolean {
+        if (!seenEventIds.add(eventId)) return false
+        synchronized(seenEventLock) {
+            seenEventOrder.addLast(eventId)
+            while (seenEventOrder.size > MAX_SEEN_EVENT_IDS) {
+                val oldest = seenEventOrder.removeFirst()
+                seenEventIds.remove(oldest)
+            }
+        }
+        return true
     }
 
     private fun refreshDiagnostics(torUsingProxy: Boolean = _diagnostics.value.torUsingProxy) {
@@ -274,5 +308,7 @@ class RelayHttpMeshTransport(
     companion object {
         private const val DIRECT_POLL_INTERVAL_MS = 2_000L
         private const val TOR_POLL_INTERVAL_MS = 4_000L
+        private const val MAX_SEEN_EVENT_IDS = 2_000
+        private const val MAX_RELAY_MESSAGE_BODY_CHARS = 16_000
     }
 }
