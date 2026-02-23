@@ -79,6 +79,7 @@ class ContactRepository(context: Context) {
             createdAtMs = o.optLong("createdAtMs", System.currentTimeMillis()).coerceAtLeast(0L)
         )
         val payload = ContactIdentityPayload(
+            version = 1,
             userId = candidate.userId,
             alias = candidate.alias,
             publicKeyBase64 = candidate.publicKeyBase64,
@@ -99,6 +100,7 @@ class ContactRepository(context: Context) {
                 createdAtMs = raw.createdAtMs.coerceAtLeast(0L)
             )
             val payload = ContactIdentityPayload(
+                version = 1,
                 userId = normalized.userId,
                 alias = normalized.alias,
                 publicKeyBase64 = normalized.publicKeyBase64,

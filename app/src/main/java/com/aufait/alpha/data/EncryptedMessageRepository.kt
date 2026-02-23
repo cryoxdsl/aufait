@@ -167,8 +167,8 @@ class EncryptedMessageRepository(
                 )
             }
             .sortedBy { it.timestampMs }
-            .takeLast(MAX_STORED_MESSAGES)
             .toList()
+            .takeLast(MAX_STORED_MESSAGES)
     }
 
     private fun saveStored(messages: List<StoredMessageEnvelope>) {
