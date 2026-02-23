@@ -2,16 +2,25 @@ package com.aufait.alpha.data
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.bluetooth.BluetoothServerSocket
+import android.bluetooth.le.AdvertiseCallback
+import android.bluetooth.le.AdvertiseData
+import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.ParcelUuid
 import android.util.Base64
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +62,7 @@ class BluetoothMeshTransport(
     private val _diagnostics = MutableStateFlow(TransportDiagnostics())
     private val peerTable = linkedMapOf<String, BtPeerRecord>()
     private val seenInboundEvents = LinkedHashMap<String, Long>(256, 0.75f, true)
+    private val bleSeenAddresses = LinkedHashMap<String, Long>(256, 0.75f, true)
 
     override val inboundMessages: SharedFlow<InboundTransportMessage> = _inbound
     override val inboundReceipts: SharedFlow<InboundReceipt> = _receipts
@@ -64,7 +74,37 @@ class BluetoothMeshTransport(
     @Volatile private var localAlias: String = "android-alpha"
     @Volatile private var localNodeId: String = ""
     @Volatile private var isDiscoveryActive = false
+    @Volatile private var isBleScanActive = false
+    @Volatile private var isBleAdvertisingActive = false
     @Volatile private var isServerListening = false
+    @Volatile private var bleScanStarted = false
+    @Volatile private var bleAdvertiseStarted = false
+
+    private val bleServiceUuid = ParcelUuid(SERVICE_UUID)
+    private val bleScanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            onBleScanResult(result)
+        }
+        override fun onBatchScanResults(results: MutableList<ScanResult>) {
+            results.forEach(::onBleScanResult)
+        }
+        override fun onScanFailed(errorCode: Int) {
+            isBleScanActive = false
+            updateBtError(IllegalStateException("BLE scan error: $errorCode"))
+            refreshDiagnostics()
+        }
+    }
+    private val bleAdvertiseCallback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+            isBleAdvertisingActive = true
+            refreshDiagnostics()
+        }
+        override fun onStartFailure(errorCode: Int) {
+            isBleAdvertisingActive = false
+            updateBtError(IllegalStateException("BLE advertise error: $errorCode"))
+            refreshDiagnostics()
+        }
+    }
 
     private val discoveryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -100,6 +140,8 @@ class BluetoothMeshTransport(
         refreshDiagnostics()
 
         scope.launch { refreshBondedPeersLoop() }
+        scope.launch { bleScanLoop() }
+        scope.launch { bleAdvertiseLoop() }
         scope.launch { discoveryLoop() }
         scope.launch { serverAcceptLoop() }
         scope.launch { helloLoop() }
@@ -188,6 +230,87 @@ class BluetoothMeshTransport(
         }
     }
 
+    private suspend fun bleScanLoop() {
+        while (true) {
+            val adapter = bluetoothAdapterOrNull()
+            if (adapter == null || !adapter.isEnabled || !hasBluetoothScanPermission()) {
+                stopBleScanIfNeeded(adapter)
+                isBleScanActive = false
+                refreshDiagnostics()
+                delay(5_000L)
+                continue
+            }
+            val scanner = adapter.bluetoothLeScanner
+            if (scanner == null) {
+                isBleScanActive = false
+                refreshDiagnostics()
+                delay(10_000L)
+                continue
+            }
+            if (!bleScanStarted) {
+                val filters = listOf(
+                    ScanFilter.Builder()
+                        .setServiceUuid(bleServiceUuid)
+                        .build()
+                )
+                val settings = ScanSettings.Builder()
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                    .build()
+                runCatching {
+                    scanner.startScan(filters, settings, bleScanCallback)
+                    bleScanStarted = true
+                    isBleScanActive = true
+                }.onFailure {
+                    isBleScanActive = false
+                    updateBtError(it)
+                }
+                refreshDiagnostics()
+            }
+            delay(15_000L)
+        }
+    }
+
+    private suspend fun bleAdvertiseLoop() {
+        while (true) {
+            val adapter = bluetoothAdapterOrNull()
+            if (adapter == null || !adapter.isEnabled || !hasBluetoothAdvertisePermission()) {
+                stopBleAdvertisingIfNeeded(adapter)
+                isBleAdvertisingActive = false
+                refreshDiagnostics()
+                delay(5_000L)
+                continue
+            }
+            val advertiser = adapter.bluetoothLeAdvertiser
+            if (advertiser == null) {
+                isBleAdvertisingActive = false
+                refreshDiagnostics()
+                delay(10_000L)
+                continue
+            }
+            if (!bleAdvertiseStarted) {
+                val settings = AdvertiseSettings.Builder()
+                    .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                    .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+                    .setConnectable(false)
+                    .build()
+                val data = AdvertiseData.Builder()
+                    .addServiceUuid(bleServiceUuid)
+                    .addServiceData(bleServiceUuid, buildBleAdvertPayload())
+                    .setIncludeDeviceName(false)
+                    .build()
+                runCatching {
+                    advertiser.startAdvertising(settings, data, bleAdvertiseCallback)
+                    bleAdvertiseStarted = true
+                }.onFailure {
+                    isBleAdvertisingActive = false
+                    updateBtError(it)
+                }
+                refreshDiagnostics()
+            }
+            delay(30_000L)
+        }
+    }
+
     private suspend fun helloLoop() {
         while (true) {
             val hello = JSONObject()
@@ -216,6 +339,7 @@ class BluetoothMeshTransport(
         val bonded = runCatching { adapter.bondedDevices.orEmpty() }.getOrElse { emptySet() }
         synchronized(peerTable) {
             bonded.forEach { device ->
+                if (!shouldKeepBondedDevice(device, now)) return@forEach
                 val address = device.address ?: return@forEach
                 val endpoint = endpointFor(address)
                 val existing = peerTable[endpoint]
@@ -384,6 +508,8 @@ class BluetoothMeshTransport(
     }
 
     private fun onDiscoveredDevice(device: BluetoothDevice) {
+        if (!isSupportedMobileDevice(device)) return
+        if (!deviceMatchesEnFaitPrefix(device)) return
         val address = device.address ?: return
         val endpoint = endpointFor(address)
         synchronized(peerTable) {
@@ -393,6 +519,40 @@ class BluetoothMeshTransport(
                 nodeId = existing?.nodeId ?: fallbackNodeIdForAddress(address),
                 endpoint = endpoint,
                 lastSeenMs = System.currentTimeMillis(),
+                bonded = existing?.bonded == true || device.bondState == BluetoothDevice.BOND_BONDED
+            )
+            publishPeersLocked()
+        }
+        refreshDiagnostics()
+    }
+
+    private fun onBleScanResult(result: ScanResult) {
+        val device = result.device ?: return
+        if (!isSupportedMobileDevice(device)) return
+        val scanRecord = result.scanRecord ?: return
+        val serviceData = scanRecord.getServiceData(bleServiceUuid) ?: return
+        if (!isEnFaitBleAdvert(serviceData)) return
+        val address = device.address ?: return
+        val alias = parseBleAdvertAlias(serviceData)
+            ?: safeDeviceName(device)
+            ?: "${ENFAIT_DEVICE_PREFIX}${address.filter { it.isLetterOrDigit() }.takeLast(4)}"
+        val now = System.currentTimeMillis()
+        synchronized(bleSeenAddresses) {
+            bleSeenAddresses[address] = now
+            bleSeenAddresses.entries.removeIf { now - it.value > BLE_SEEN_TTL_MS }
+            while (bleSeenAddresses.size > MAX_TRACKED_BLE_DEVICES) {
+                val eldest = bleSeenAddresses.entries.iterator().next().key
+                bleSeenAddresses.remove(eldest)
+            }
+        }
+        val endpoint = endpointFor(address)
+        synchronized(peerTable) {
+            val existing = peerTable[endpoint]
+            peerTable[endpoint] = BtPeerRecord(
+                alias = alias.take(MAX_ALIAS_CHARS),
+                nodeId = existing?.nodeId ?: fallbackNodeIdForAddress(address),
+                endpoint = endpoint,
+                lastSeenMs = now,
                 bonded = existing?.bonded == true || device.bondState == BluetoothDevice.BOND_BONDED
             )
             publishPeersLocked()
@@ -606,7 +766,7 @@ class BluetoothMeshTransport(
             bluetoothPeerCount = _peers.value.size,
             bluetoothEnabled = bluetoothEnabled,
             bluetoothPermissionGranted = permissionGranted && scanPermissionGranted,
-            bluetoothDiscoveryActive = isDiscoveryActive || adapterDiscoveryActive,
+            bluetoothDiscoveryActive = isDiscoveryActive || adapterDiscoveryActive || isBleScanActive || isBleAdvertisingActive,
             bluetoothServerListening = isServerListening
         )
     }
@@ -655,6 +815,67 @@ class BluetoothMeshTransport(
     private fun safeDeviceName(device: BluetoothDevice): String? =
         runCatching { device.name }.getOrNull()?.takeIf { it.isNotBlank() }
 
+    private fun shouldKeepBondedDevice(device: BluetoothDevice, now: Long): Boolean {
+        if (!isSupportedMobileDevice(device)) return false
+        if (deviceMatchesEnFaitPrefix(device)) return true
+        val address = device.address ?: return false
+        synchronized(bleSeenAddresses) {
+            bleSeenAddresses.entries.removeIf { now - it.value > BLE_SEEN_TTL_MS }
+            return bleSeenAddresses[address]?.let { now - it <= BLE_SEEN_TTL_MS } == true
+        }
+    }
+
+    private fun isSupportedMobileDevice(device: BluetoothDevice): Boolean {
+        val klass = runCatching { device.bluetoothClass }.getOrNull()
+        return when (klass?.majorDeviceClass) {
+            null -> true
+            BluetoothClass.Device.Major.PHONE -> true
+            BluetoothClass.Device.Major.COMPUTER -> true
+            else -> false
+        }
+    }
+
+    private fun deviceMatchesEnFaitPrefix(device: BluetoothDevice): Boolean {
+        val name = safeDeviceName(device) ?: return false
+        return name.startsWith(ENFAIT_DEVICE_PREFIX, ignoreCase = true)
+    }
+
+    private fun buildBleAdvertPayload(): ByteArray {
+        val alias = localAlias.trim().ifBlank { "${ENFAIT_DEVICE_PREFIX}${localNodeId.takeLast(4)}" }
+        val payload = "$BLE_SERVICE_PREFIX|${alias.take(12)}"
+        val bytes = payload.toByteArray(Charsets.UTF_8)
+        return if (bytes.size <= MAX_BLE_SERVICE_DATA_BYTES) bytes else bytes.copyOf(MAX_BLE_SERVICE_DATA_BYTES)
+    }
+
+    private fun isEnFaitBleAdvert(serviceData: ByteArray): Boolean {
+        val text = runCatching { serviceData.toString(Charsets.UTF_8) }.getOrNull() ?: return false
+        return text.startsWith(BLE_SERVICE_PREFIX)
+    }
+
+    private fun parseBleAdvertAlias(serviceData: ByteArray): String? {
+        val text = runCatching { serviceData.toString(Charsets.UTF_8) }.getOrNull() ?: return null
+        if (!text.startsWith(BLE_SERVICE_PREFIX)) return null
+        val raw = text.substringAfter('|', "").trim().take(MAX_ALIAS_CHARS)
+        if (raw.isBlank()) return null
+        return if (raw.startsWith(ENFAIT_DEVICE_PREFIX, ignoreCase = true)) raw else "${ENFAIT_DEVICE_PREFIX}${raw}"
+    }
+
+    private fun stopBleScanIfNeeded(adapter: BluetoothAdapter?) {
+        if (!bleScanStarted) return
+        val scanner = runCatching { adapter?.bluetoothLeScanner }.getOrNull() ?: return
+        runCatching { scanner.stopScan(bleScanCallback) }
+        bleScanStarted = false
+        isBleScanActive = false
+    }
+
+    private fun stopBleAdvertisingIfNeeded(adapter: BluetoothAdapter?) {
+        if (!bleAdvertiseStarted) return
+        val advertiser = runCatching { adapter?.bluetoothLeAdvertiser }.getOrNull() ?: return
+        runCatching { advertiser.stopAdvertising(bleAdvertiseCallback) }
+        bleAdvertiseStarted = false
+        isBleAdvertisingActive = false
+    }
+
     @Suppress("DEPRECATION")
     private fun Intent.parcelableBluetoothDevice(key: String): BluetoothDevice? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -691,6 +912,14 @@ class BluetoothMeshTransport(
         }
     }
 
+    private fun hasBluetoothAdvertisePermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        return ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.BLUETOOTH_ADVERTISE
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     private data class BtPeerRecord(
         val alias: String,
         val nodeId: String,
@@ -725,5 +954,10 @@ class BluetoothMeshTransport(
         private const val TRANSPORT_KEY_SALT = "aufait-alpha-bt-transport-v1"
         private val ALLOWED_TYPES = setOf("hello", "msg", "receipt")
         private val SERVICE_UUID: UUID = UUID.fromString("5f7609b9-c4c9-4b5d-b4b8-1f5b9f78d4a1")
+        private const val ENFAIT_DEVICE_PREFIX = "EnFait-"
+        private const val BLE_SERVICE_PREFIX = "ENF1"
+        private const val BLE_SEEN_TTL_MS = 90_000L
+        private const val MAX_TRACKED_BLE_DEVICES = 256
+        private const val MAX_BLE_SERVICE_DATA_BYTES = 24
     }
 }
