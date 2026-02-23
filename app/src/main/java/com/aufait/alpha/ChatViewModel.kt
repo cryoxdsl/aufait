@@ -7,6 +7,8 @@ import com.aufait.alpha.data.ChatMessage
 import com.aufait.alpha.data.ContactRecord
 import com.aufait.alpha.data.DiscoveredPeer
 import com.aufait.alpha.data.IdentityQrPayloadCodec
+import com.aufait.alpha.data.TransportDiagnostics
+import com.aufait.alpha.data.TransportRoutingMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +39,15 @@ data class ChatUiState(
     val showIdentityQr: Boolean = false,
     val contacts: List<ContactRecord> = emptyList(),
     val contactImportStatus: String? = null,
-    val attachmentDraft: AttachmentDraft? = null
+    val attachmentDraft: AttachmentDraft? = null,
+    val transportRoutingMode: TransportRoutingMode = TransportRoutingMode.AUTO,
+    val transportLanPeerCount: Int = 0,
+    val transportBluetoothPeerCount: Int = 0,
+    val bluetoothEnabled: Boolean = false,
+    val bluetoothPermissionGranted: Boolean = false,
+    val bluetoothDiscoveryActive: Boolean = false,
+    val bluetoothServerListening: Boolean = false,
+    val transportLastError: String? = null
 )
 
 data class AttachmentDraft(
@@ -56,8 +66,9 @@ class ChatViewModel(
         local,
         container.messageRepository.messages,
         container.chatService.peers,
-        container.contactRepository.contacts
-    ) { state, messages, peers, contacts ->
+        container.contactRepository.contacts,
+        container.transportControl.diagnostics
+    ) { state, messages, peers, contacts, diagnostics ->
         val selectedPeer = peers.firstOrNull { it.nodeId == state.selectedPeerNodeId } ?: peers.firstOrNull()
         val selectedContact = contacts.firstOrNull { it.userId == state.selectedContactUserId } ?: contacts.firstOrNull()
         val activeTargetLabel = selectedPeer?.alias ?: selectedContact?.alias ?: state.peerAlias
@@ -68,11 +79,15 @@ class ChatViewModel(
             selectedPeerNodeId = selectedPeer?.nodeId,
             selectedContactUserId = selectedContact?.userId,
             peerAlias = activeTargetLabel,
-            transportStatus = if (peers.isEmpty()) {
-                "LAN mesh alpha (aucun pair, fallback local)"
-            } else {
-                "LAN mesh alpha (${peers.size} pair(s))"
-            }
+            transportStatus = buildTransportStatus(peers, diagnostics),
+            transportRoutingMode = diagnostics.routingMode,
+            transportLanPeerCount = diagnostics.lanPeerCount,
+            transportBluetoothPeerCount = diagnostics.bluetoothPeerCount,
+            bluetoothEnabled = diagnostics.bluetoothEnabled,
+            bluetoothPermissionGranted = diagnostics.bluetoothPermissionGranted,
+            bluetoothDiscoveryActive = diagnostics.bluetoothDiscoveryActive,
+            bluetoothServerListening = diagnostics.bluetoothServerListening,
+            transportLastError = diagnostics.bluetoothLastError
         )
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, ChatUiState())
 
@@ -171,6 +186,12 @@ class ChatViewModel(
         }
     }
 
+    fun setTransportRoutingMode(mode: TransportRoutingMode) {
+        viewModelScope.launch(Dispatchers.IO) {
+            container.transportControl.setRoutingMode(mode)
+        }
+    }
+
     fun setIdentityQrVisible(visible: Boolean) {
         local.update { it.copy(showIdentityQr = visible) }
     }
@@ -217,6 +238,23 @@ class ChatViewModel(
     private fun buildCryptoStatus(): String {
         val bundle = container.x3dhPreKeyRepository.getOrCreateBundleSummary()
         return "${container.chatService.cryptoModeLabel} • x3dh-prekeys:${bundle.oneTimePreKeyCount}"
+    }
+
+    private fun buildTransportStatus(
+        peers: List<DiscoveredPeer>,
+        diagnostics: TransportDiagnostics
+    ): String {
+        val modeLabel = when (diagnostics.routingMode) {
+            TransportRoutingMode.AUTO -> "Auto"
+            TransportRoutingMode.LAN_ONLY -> "LAN"
+            TransportRoutingMode.BLUETOOTH_ONLY -> "Bluetooth"
+        }
+        if (peers.isEmpty()) {
+            return "Transport $modeLabel (aucun pair)"
+        }
+        val lan = diagnostics.lanPeerCount
+        val bt = diagnostics.bluetoothPeerCount
+        return "Transport $modeLabel (LAN:$lan • BT:$bt • visibles:${peers.size})"
     }
 
     private fun buildOutgoingBody(text: String, attachment: AttachmentDraft?): String {

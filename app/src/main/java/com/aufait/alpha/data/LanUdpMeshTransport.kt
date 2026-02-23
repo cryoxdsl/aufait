@@ -21,20 +21,23 @@ import java.util.concurrent.ConcurrentHashMap
 class LanUdpMeshTransport(
     private val externalScope: CoroutineScope,
     private val fallback: MeshTransport = LoopbackMeshTransport(externalScope)
-) : MeshTransport {
+) : MeshTransport, TransportControl {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _inbound = MutableSharedFlow<InboundTransportMessage>(extraBufferCapacity = 32)
     private val _receipts = MutableSharedFlow<InboundReceipt>(extraBufferCapacity = 32)
     private val _peers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
     private val _fallbackPeers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
+    private val _diagnostics = MutableStateFlow(TransportDiagnostics())
 
     override val inboundMessages: SharedFlow<InboundTransportMessage> = _inbound
     override val inboundReceipts: SharedFlow<InboundReceipt> = _receipts
     override val peers: StateFlow<List<DiscoveredPeer>> = _peers.asStateFlow()
+    override val diagnostics: StateFlow<TransportDiagnostics> = _diagnostics.asStateFlow()
 
     private val peerTable = ConcurrentHashMap<String, PeerRecord>()
     @Volatile private var receiveSocket: DatagramSocket? = null
     @Volatile private var started = false
+    @Volatile private var routingMode: TransportRoutingMode = TransportRoutingMode.AUTO
     @Volatile private var localAlias: String = "android-alpha"
     @Volatile private var localNodeId: String = ""
 
@@ -59,21 +62,41 @@ class LanUdpMeshTransport(
             fallback.peers.collect { peers ->
                 _fallbackPeers.value = peers
                 publishPeers()
+                refreshDiagnostics()
+            }
+        }
+        if (fallback is BluetoothMeshTransport) {
+            externalScope.launch {
+                fallback.diagnostics.collect {
+                    refreshDiagnostics()
+                }
             }
         }
 
         scope.launch { receiveLoop() }
         scope.launch { beaconLoop() }
         scope.launch { cleanupLoop() }
+        refreshDiagnostics()
     }
 
     override suspend fun updateLocalAlias(localAlias: String) {
         this.localAlias = localAlias.trim().ifBlank { this.localAlias }
     }
 
+    override suspend fun setRoutingMode(mode: TransportRoutingMode) {
+        routingMode = mode
+        publishPeers()
+        refreshDiagnostics()
+    }
+
     override suspend fun sendMessage(toPeer: String, messageId: String, body: String) {
+        if (routingMode == TransportRoutingMode.BLUETOOTH_ONLY) {
+            fallback.sendMessage(toPeer, messageId, body)
+            return
+        }
         val peersSnapshot = currentLanPeers()
         if (peersSnapshot.isEmpty()) {
+            if (routingMode == TransportRoutingMode.LAN_ONLY) return
             fallback.sendMessage(toPeer, messageId, body)
             return
         }
@@ -98,8 +121,13 @@ class LanUdpMeshTransport(
     }
 
     override suspend fun sendReceipt(toPeer: String, messageId: String, kind: ReceiptKind) {
+        if (routingMode == TransportRoutingMode.BLUETOOTH_ONLY) {
+            fallback.sendReceipt(toPeer, messageId, kind)
+            return
+        }
         val peersSnapshot = currentLanPeers()
         if (peersSnapshot.isEmpty()) {
+            if (routingMode == TransportRoutingMode.LAN_ONLY) return
             fallback.sendReceipt(toPeer, messageId, kind)
             return
         }
@@ -233,11 +261,32 @@ class LanUdpMeshTransport(
             lastSeenMs = System.currentTimeMillis()
         )
         publishPeers()
+        refreshDiagnostics()
     }
 
     private fun publishPeers() {
         val lanPeers = currentLanPeers()
-        _peers.value = if (lanPeers.isNotEmpty()) lanPeers else _fallbackPeers.value
+        _peers.value = when (routingMode) {
+            TransportRoutingMode.LAN_ONLY -> lanPeers
+            TransportRoutingMode.BLUETOOTH_ONLY -> _fallbackPeers.value
+            TransportRoutingMode.AUTO -> if (lanPeers.isNotEmpty()) lanPeers else _fallbackPeers.value
+        }
+        refreshDiagnostics()
+    }
+
+    private fun refreshDiagnostics() {
+        val lanCount = peerTable.size
+        val fallbackDiag = (fallback as? BluetoothMeshTransport)?.diagnostics?.value
+        _diagnostics.value = TransportDiagnostics(
+            routingMode = routingMode,
+            lanPeerCount = lanCount,
+            bluetoothPeerCount = _fallbackPeers.value.size,
+            bluetoothEnabled = fallbackDiag?.bluetoothEnabled ?: false,
+            bluetoothPermissionGranted = fallbackDiag?.bluetoothPermissionGranted ?: false,
+            bluetoothDiscoveryActive = fallbackDiag?.bluetoothDiscoveryActive ?: false,
+            bluetoothServerListening = fallbackDiag?.bluetoothServerListening ?: false,
+            bluetoothLastError = fallbackDiag?.bluetoothLastError
+        )
     }
 
     private fun currentLanPeers(): List<DiscoveredPeer> {

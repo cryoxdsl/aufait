@@ -41,6 +41,11 @@ interface MeshTransport {
     suspend fun sendReceipt(toPeer: String, messageId: String, kind: ReceiptKind)
 }
 
+interface TransportControl {
+    val diagnostics: StateFlow<TransportDiagnostics>
+    suspend fun setRoutingMode(mode: TransportRoutingMode)
+}
+
 class LoopbackMeshTransport(
     private val scope: CoroutineScope
 ) : MeshTransport {

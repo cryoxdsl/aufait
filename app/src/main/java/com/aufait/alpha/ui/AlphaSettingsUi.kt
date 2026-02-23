@@ -53,6 +53,7 @@ import com.aufait.alpha.ChatUiState
 import com.aufait.alpha.R
 import com.aufait.alpha.data.ContactRecord
 import com.aufait.alpha.data.DiscoveredPeer
+import com.aufait.alpha.data.TransportRoutingMode
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,7 +66,8 @@ internal fun SettingsBottomSheet(
     onScanContactQr: () -> Unit,
     onDismissContactImportStatus: () -> Unit,
     onSelectContact: (String) -> Unit,
-    onSelectPeer: (String) -> Unit
+    onSelectPeer: (String) -> Unit,
+    onSetTransportRoutingMode: (TransportRoutingMode) -> Unit
 ) {
     val scrollState = rememberScrollState()
     ModalBottomSheet(
@@ -95,6 +97,12 @@ internal fun SettingsBottomSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(12.dp))
+            SheetSectionHeader("Transport offline")
+            TransportCard(
+                state = state,
+                onSetTransportRoutingMode = onSetTransportRoutingMode
+            )
+            Spacer(Modifier.height(10.dp))
             SheetSectionHeader(stringResource(R.string.settings_section_identity))
             IdentityCard(
                 state = state,
@@ -122,6 +130,89 @@ internal fun SettingsBottomSheet(
             Spacer(Modifier.height(20.dp))
         }
     }
+}
+
+@Composable
+private fun TransportCard(
+    state: ChatUiState,
+    onSetTransportRoutingMode: (TransportRoutingMode) -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Routage", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                state.transportStatus,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TransportModeChip(
+                    label = "Auto",
+                    selected = state.transportRoutingMode == TransportRoutingMode.AUTO,
+                    onClick = { onSetTransportRoutingMode(TransportRoutingMode.AUTO) }
+                )
+                TransportModeChip(
+                    label = "LAN",
+                    selected = state.transportRoutingMode == TransportRoutingMode.LAN_ONLY,
+                    onClick = { onSetTransportRoutingMode(TransportRoutingMode.LAN_ONLY) }
+                )
+                TransportModeChip(
+                    label = "Bluetooth",
+                    selected = state.transportRoutingMode == TransportRoutingMode.BLUETOOTH_ONLY,
+                    onClick = { onSetTransportRoutingMode(TransportRoutingMode.BLUETOOTH_ONLY) }
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "LAN: ${state.transportLanPeerCount} • BT: ${state.transportBluetoothPeerCount}",
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                "Bluetooth ${if (state.bluetoothEnabled) "activé" else "désactivé"} • permission ${if (state.bluetoothPermissionGranted) "ok" else "requise"}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Discovery ${if (state.bluetoothDiscoveryActive) "active" else "inactive"} • serveur ${if (state.bluetoothServerListening) "à l'écoute" else "arrêté"}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            state.transportLastError?.takeIf { it.isNotBlank() }?.let { err ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "BT erreur: $err",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TransportModeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    AssistChip(
+        onClick = onClick,
+        modifier = Modifier.semantics {
+            role = Role.RadioButton
+            this.selected = selected
+        },
+        leadingIcon = if (selected) {
+            { Icon(Icons.Default.Check, contentDescription = null) }
+        } else null,
+        label = { Text(label) }
+    )
 }
 
 @Composable

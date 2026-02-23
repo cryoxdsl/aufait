@@ -21,6 +21,7 @@ class AlphaChatContainer(context: Context) {
         relayUrl = "http://10.0.2.2:8787" // emu Android -> machine hote; sur telephone utiliser IP LAN du PC
     )
     private val transport = HybridMeshTransport(scope, lan = lanTransport, relay = relayTransport)
+    val transportControl: TransportControl = lanTransport
     private val e2eCipherEngine = PlaintextEnvelopeCipher()
     private val incomingMessageSoundPlayer = IncomingMessageSoundPlayer(appContext)
     private val backgroundMessageNotifier = BackgroundMessageNotifier(appContext)

@@ -45,3 +45,20 @@ data class StoredMessageEnvelope(
     val deliveredAtMs: Long? = null,
     val readAtMs: Long? = null
 )
+
+enum class TransportRoutingMode {
+    AUTO,
+    LAN_ONLY,
+    BLUETOOTH_ONLY
+}
+
+data class TransportDiagnostics(
+    val routingMode: TransportRoutingMode = TransportRoutingMode.AUTO,
+    val lanPeerCount: Int = 0,
+    val bluetoothPeerCount: Int = 0,
+    val bluetoothEnabled: Boolean = false,
+    val bluetoothPermissionGranted: Boolean = false,
+    val bluetoothDiscoveryActive: Boolean = false,
+    val bluetoothServerListening: Boolean = false,
+    val bluetoothLastError: String? = null
+)

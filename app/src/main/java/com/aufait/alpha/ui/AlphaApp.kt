@@ -55,6 +55,7 @@ import com.aufait.alpha.ChatUiState
 import com.aufait.alpha.ChatViewModel
 import com.aufait.alpha.AttachmentDraft
 import com.aufait.alpha.R
+import com.aufait.alpha.data.TransportRoutingMode
 
 @Composable
 fun AlphaApp(
@@ -77,7 +78,8 @@ fun AlphaApp(
                 onScanContactQrRequest = onScanContactQrRequest,
                 onDismissContactImportStatus = viewModel::clearContactImportStatus,
                 onPickAttachmentRequest = onPickAttachmentRequest,
-                onClearAttachmentDraft = viewModel::clearAttachmentDraft
+                onClearAttachmentDraft = viewModel::clearAttachmentDraft,
+                onSetTransportRoutingMode = viewModel::setTransportRoutingMode
             )
         }
     }
@@ -97,7 +99,8 @@ private fun AlphaScreen(
     onScanContactQrRequest: () -> Unit,
     onDismissContactImportStatus: () -> Unit,
     onPickAttachmentRequest: () -> Unit,
-    onClearAttachmentDraft: () -> Unit
+    onClearAttachmentDraft: () -> Unit,
+    onSetTransportRoutingMode: (TransportRoutingMode) -> Unit
 ) {
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
 
@@ -118,7 +121,8 @@ private fun AlphaScreen(
             onScanContactQr = onScanContactQrRequest,
             onDismissContactImportStatus = onDismissContactImportStatus,
             onSelectContact = onSelectContact,
-            onSelectPeer = onSelectPeer
+            onSelectPeer = onSelectPeer,
+            onSetTransportRoutingMode = onSetTransportRoutingMode
         )
     }
 
@@ -333,7 +337,8 @@ private fun AlphaScreenPreview() {
             onScanContactQrRequest = {},
             onDismissContactImportStatus = {},
             onPickAttachmentRequest = {},
-            onClearAttachmentDraft = {}
+            onClearAttachmentDraft = {},
+            onSetTransportRoutingMode = {}
         )
     }
 }

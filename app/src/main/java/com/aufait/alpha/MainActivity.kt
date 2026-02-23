@@ -29,8 +29,8 @@ class MainActivity : ComponentActivity() {
     ) { granted ->
         if (granted) launchQrScan()
     }
-    private val bluetoothConnectPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
+    private val bluetoothPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
     ) { /* no-op for alpha */ }
     private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
         val content = result.contents ?: return@registerForActivityResult
@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
-        requestBluetoothPermissionIfNeeded()
+        requestBluetoothPermissionsIfNeeded()
         setContent {
             AlphaApp(
                 viewModel = viewModel,
@@ -98,14 +98,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestBluetoothPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        val granted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.BLUETOOTH_CONNECT
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            bluetoothConnectPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+    private fun requestBluetoothPermissionsIfNeeded() {
+        val missing = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                missing += Manifest.permission.BLUETOOTH_CONNECT
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                missing += Manifest.permission.BLUETOOTH_SCAN
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                missing += Manifest.permission.ACCESS_FINE_LOCATION
+            }
+        }
+        if (missing.isNotEmpty()) {
+            bluetoothPermissionsLauncher.launch(missing.toTypedArray())
         }
     }
 
