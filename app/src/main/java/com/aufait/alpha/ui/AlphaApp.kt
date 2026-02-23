@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
@@ -125,6 +128,7 @@ private fun AlphaScreen(
     onClearAttachmentDraft: () -> Unit
 ) {
     var panelsExpanded by rememberSaveable { mutableStateOf(false) }
+    val configScrollState = rememberScrollState()
 
     if (state.showIdentityQr) {
         IdentityQrDialog(
@@ -175,12 +179,20 @@ private fun AlphaScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(min = 0.dp),
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 2.dp,
                         shadowElevation = 2.dp
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .verticalScroll(configScrollState)
+                                .padding(10.dp)
+                        ) {
                             IdentityCard(
                                 state = state,
                                 onAliasDraftChanged = onAliasDraftChanged,
